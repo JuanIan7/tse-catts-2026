@@ -401,21 +401,42 @@
 
   var vozUsadaPeloNarrador_ = null;
 
-  function falarComoTentante(textoCompleto, aoComecar, aoTerminar) {
-    if (!('speechSynthesis' in window) || !document.getElementById('chkVoz').checked) {
+  /** Toca um áudio MP3 em base64 (vindo do Google Cloud TTS) e chama os callbacks certos. */
+  function tocarAudioBase64_(base64Mp3, aoComecar, aoTerminar) {
+    try {
+      var audio = new Audio('data:audio/mp3;base64,' + base64Mp3);
+      if (aoComecar) audio.addEventListener('play', aoComecar, { once: true });
+      audio.addEventListener('ended', function () { if (aoTerminar) aoTerminar(); }, { once: true });
+      audio.addEventListener('error', function () { if (aoTerminar) aoTerminar(); }, { once: true });
+      audio.play().catch(function () { if (aoTerminar) aoTerminar(); });
+    } catch (e) {
       if (aoTerminar) aoTerminar();
-      return;
     }
+  }
+
+  /** Voz do PERSONAGEM: tenta a voz natural do Google Cloud primeiro; se falhar, usa a do navegador. */
+  function falarComoTentante(textoCompleto, aoComecar, aoTerminar) {
+    if (!document.getElementById('chkVoz').checked) { if (aoTerminar) aoTerminar(); return; }
     var texto = textoCompleto.replace(/\([^)]*\)/g, '').trim(); // remove sinais entre parênteses da fala
     if (!texto) { if (aoTerminar) aoTerminar(); return; }
+    var voz = casoAtual.voz || { genero: 'masculino', faixaEtaria: 'adulto' };
+    chamarServidor('sintetizarTentante', texto, voz.genero, voz.faixaEtaria)
+      .then(function (b64) {
+        if (b64) { tocarAudioBase64_(b64, aoComecar, aoTerminar); }
+        else { falarComoTentanteNavegador_(texto, aoComecar, aoTerminar); }
+      })
+      .catch(function () { falarComoTentanteNavegador_(texto, aoComecar, aoTerminar); });
+  }
+
+  /** Reserva: síntese de voz do próprio navegador, só usada se o Google Cloud TTS falhar. */
+  function falarComoTentanteNavegador_(texto, aoComecar, aoTerminar) {
+    if (!('speechSynthesis' in window)) { if (aoTerminar) aoTerminar(); return; }
     window.speechSynthesis.cancel();
     var utter = new SpeechSynthesisUtterance(texto);
     utter.lang = 'pt-BR';
     var voz = casoAtual.voz || { genero: 'masculino', faixaEtaria: 'adulto' };
     var vozNavegador = escolherVozNavegador_(voz.genero, vozUsadaPeloNarrador_);
     if (vozNavegador) utter.voice = vozNavegador;
-    // ajusta tom/velocidade para sugerir gênero e faixa etária mesmo quando só há 1 voz pt-BR disponível
-    // e para soar claramente diferente da voz mais grave e neutra do narrador
     var pitch = voz.genero === 'feminino' ? 1.3 : 0.7;
     var rate = 1.02;
     if (voz.faixaEtaria === 'jovem_adulto') { pitch += 0.12; rate = 1.08; }
@@ -428,14 +449,21 @@
     window.speechSynthesis.speak(utter);
   }
 
-  /** Narra a introdução/despacho com voz neutra e grave de narrador (nunca a voz do personagem). */
+  /** Narra a introdução/despacho com voz de narrador do Google Cloud; se falhar, cai no navegador. */
   function narrar_(texto, aoTerminar) {
-    if (!('speechSynthesis' in window) || !document.getElementById('chkVoz').checked || !texto) {
-      if (aoTerminar) aoTerminar();
-      return;
-    }
+    if (!document.getElementById('chkVoz').checked || !texto) { if (aoTerminar) aoTerminar(); return; }
     var limpo = texto.replace(/\([^)]*\)/g, '').trim();
     if (!limpo) { if (aoTerminar) aoTerminar(); return; }
+    chamarServidor('sintetizarNarrador', limpo)
+      .then(function (b64) {
+        if (b64) { tocarAudioBase64_(b64, null, aoTerminar); }
+        else { narrarNavegador_(limpo, aoTerminar); }
+      })
+      .catch(function () { narrarNavegador_(limpo, aoTerminar); });
+  }
+
+  function narrarNavegador_(limpo, aoTerminar) {
+    if (!('speechSynthesis' in window)) { if (aoTerminar) aoTerminar(); return; }
     window.speechSynthesis.cancel();
     var utter = new SpeechSynthesisUtterance(limpo);
     utter.lang = 'pt-BR';
