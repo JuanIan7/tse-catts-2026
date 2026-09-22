@@ -121,6 +121,7 @@
     .bolha-fim-negativo { align-self: center; background: var(--alerta-fundo); color: #7a1c1c; font-weight: 700; text-align: center; max-width: 100%; border: 1px solid #e6b3b6; }
     .entrada-chat { display: flex; gap: 8px; }
     .entrada-chat textarea { flex: 1; min-height: 44px; }
+    #btnVoltarAudio { flex: 0 0 auto; font-size: 18px; padding: 0 14px; }
     .entrada-audio { display: flex; gap: 8px; align-items: stretch; margin-bottom: 8px; }
     .barra-gravar {
       flex: 1;
@@ -267,6 +268,7 @@
     <div class="entrada-chat escondido" id="entradaTexto">
       <textarea id="campoFala" placeholder="Fale como o abordador..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviarFalaAluno();}"></textarea>
       <button class="btn-primario" id="btnEnviar" onclick="enviarFalaAluno()">Enviar</button>
+      <button class="btn-secundario" id="btnVoltarAudio" onclick="alternarModoDigitar()" title="Voltar a falar por voz">🎤</button>
     </div>
     <div class="linha-botoes">
       <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:12px;margin:0">
@@ -510,6 +512,9 @@
   function iniciarPressaoAudio_(e) {
     if (!suportaGravacao_ || gravando || !podeFalarAgora_) return;
     e.preventDefault();
+    // Prende o ponteiro neste elemento: sem isso, no iOS o dedo "sai" da
+    // barra ao arrastar e o pointerup nunca chega até nós.
+    try { barraGravarEl.setPointerCapture(e.pointerId); } catch (err) {}
     xInicialPressao_ = e.clientX;
     cancelarEnvioAudio = false;
     gravando = true;
@@ -564,7 +569,12 @@
 
   if (barraGravarEl) {
     barraGravarEl.addEventListener('pointerdown', iniciarPressaoAudio_);
-    window.addEventListener('pointermove', moverPressaoAudio_);
+    // Com pointer capture, estes três disparam no PRÓPRIO elemento mesmo com
+    // o dedo fora dele — mais confiável no iOS do que ouvir em window.
+    barraGravarEl.addEventListener('pointermove', moverPressaoAudio_);
+    barraGravarEl.addEventListener('pointerup', soltarPressaoAudio_);
+    barraGravarEl.addEventListener('pointercancel', soltarPressaoAudio_);
+    // Mantidos como reforço, caso a captura falhe em algum navegador.
     window.addEventListener('pointerup', soltarPressaoAudio_);
     window.addEventListener('pointercancel', soltarPressaoAudio_);
   }
