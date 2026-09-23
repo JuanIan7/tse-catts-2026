@@ -295,7 +295,6 @@
       </label>
     </div>
     <div class="linha-botoes">
-      <button class="btn-secundario" onclick="pedirAvaliacao(false)">Avaliar</button>
       <button class="btn-secundario" onclick="mostrarTela('tela-dificuldade')">Novo Cenário</button>
       <button class="btn-secundario" onclick="mostrarTela('tela-menu')">Voltar ao Menu</button>
     </div>
@@ -1039,6 +1038,7 @@
       statusEl.classList.add('status-sucesso');
       atualizarStatus('✅', 'Abordagem bem-sucedida!', false);
       definirPodeFalar_(false);
+      setTimeout(function () { mostrarRelatorio(resp.avaliacaoAutomatica); }, 1200);
     } else if (resp.status === 'fim_negativo') {
       adicionarBolha('fim-negativo', resp.mensagemSistema);
       document.getElementById('chatLog').classList.remove('escondido');
@@ -1077,14 +1077,6 @@
       });
   }
 
-  function pedirAvaliacao(parcial) {
-    if (!casoAtual.sessionId) return;
-    document.getElementById('chatLog').insertAdjacentHTML('beforeend', '<div class="carregando">Avaliando…</div>');
-    chamarServidor('avaliarSessao', casoAtual.sessionId, parcial)
-      .then(mostrarRelatorio)
-      .catch(mostrarErroGenerico);
-  }
-
   function mostrarRelatorio(rel) {
     var html = '';
     html += '<div class="nota-grande">' + Number(rel.nota).toFixed(2) + ' / 10</div>';
@@ -1092,6 +1084,7 @@
 
     html += '<h3>Ficha revelada do caso</h3>';
     if (rel.fichaRevelada.nome) html += '<p style="font-size:13px"><strong>Nome:</strong> ' + rel.fichaRevelada.nome + '</p>';
+    if (rel.fichaRevelada.tipoTentativa) html += '<p style="font-size:13px"><strong>Tipo de tentativa:</strong> ' + rel.fichaRevelada.tipoTentativa.replace(/_/g, ' ') + '</p>';
     html += '<p style="font-size:13px"><strong>Fator principal:</strong> ' + (rel.fichaRevelada.fatorPrincipal || '—') + '</p>';
     html += '<p style="font-size:13px"><strong>Fatores de risco:</strong> ' + ((rel.fichaRevelada.fatoresRisco || []).join('; ')) + '</p>';
     html += '<p style="font-size:13px"><strong>Fatores de proteção:</strong> ' + ((rel.fichaRevelada.fatoresProtecao || []).join('; ')) + '</p>';
