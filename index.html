@@ -564,12 +564,23 @@
     });
   }
 
+  // Sempre pega um stream de microfone NOVO (nunca reaproveita um antigo).
+  // No iOS, tocar a voz do narrador/tentante pode encerrar ou mutar um
+  // MediaStream de microfone que ficou aberto de antes — gravar em cima de um
+  // stream "morto" produz um áudio vazio, sem erro nenhum (por isso, depois de
+  // ouvir a voz funcionar, o envio simplesmente parava de fazer efeito).
   function garantirStreamAudio_() {
-    if (streamAudio_) return Promise.resolve(streamAudio_);
+    pararStreamAudio_(streamAudio_);
+    streamAudio_ = null;
     return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
       streamAudio_ = stream;
       return stream;
     });
+  }
+
+  function pararStreamAudio_(stream) {
+    if (!stream) return;
+    try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
   }
 
   function iniciarPressaoAudio_(e) {
@@ -584,7 +595,7 @@
     atualizarBarra_('gravando');
     garantirStreamAudio_()
       .then(function (stream) {
-        if (!gravando) return; // o aluno já soltou antes da permissão do microfone chegar
+        if (!gravando) { pararStreamAudio_(stream); return; } // o aluno já soltou antes da permissão do microfone chegar
         chunksAudio_ = [];
         var opcoes = mimeTypeGravacao_ ? { mimeType: mimeTypeGravacao_ } : undefined;
         gravadorAudio_ = new MediaRecorder(stream, opcoes);
@@ -592,10 +603,14 @@
         gravadorAudio_.onstop = function () {
           gravando = false;
           atualizarBarra_('ocioso');
+          pararStreamAudio_(stream); // libera o microfone entre uma fala e outra
           var foiCancelada = cancelarEnvioAudio;
           var chunks = chunksAudio_;
           chunksAudio_ = [];
-          if (foiCancelada || !chunks.length) return;
+          if (foiCancelada || !chunks.length) {
+            if (!foiCancelada) logAudioDebug_('🎙️ gravação vazia (0 pedaços de áudio capturados)');
+            return;
+          }
           var blob = new Blob(chunks, { type: (gravadorAudio_ && gravadorAudio_.mimeType) || mimeTypeGravacao_ || 'audio/mp4' });
           enviarFalaAudioGravado_(blob);
         };
