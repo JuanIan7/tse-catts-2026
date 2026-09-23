@@ -1038,7 +1038,7 @@
       statusEl.classList.add('status-sucesso');
       atualizarStatus('✅', 'Abordagem bem-sucedida!', false);
       definirPodeFalar_(false);
-      setTimeout(function () { mostrarRelatorio(resp.avaliacaoAutomatica); }, 1200);
+      setTimeout(function () { mostrarRelatorioOuErro_(resp); }, 1200);
     } else if (resp.status === 'fim_negativo') {
       adicionarBolha('fim-negativo', resp.mensagemSistema);
       document.getElementById('chatLog').classList.remove('escondido');
@@ -1047,7 +1047,7 @@
       statusEl2.classList.add('status-falha');
       atualizarStatus('❌', 'Abordagem malsucedida', false);
       definirPodeFalar_(false);
-      setTimeout(function () { mostrarRelatorio(resp.avaliacaoAutomatica); }, 1200);
+      setTimeout(function () { mostrarRelatorioOuErro_(resp); }, 1200);
     }
   }
 
@@ -1075,6 +1075,27 @@
         atualizarStatus('🎙️', 'Sua vez de falar', false);
         definirPodeFalar_(true);
       });
+  }
+
+  /**
+   * A abordagem já terminou (positiva ou negativa) nesse ponto — isso não
+   * pode depender de a avaliação ter funcionado. Se `avaliacaoAutomatica`
+   * não veio (ex.: a IA falhou por limite/cota no momento de avaliar), evita
+   * quebrar a tela silenciosamente: mostra uma mensagem clara em vez de
+   * travar sem nada aparecer.
+   */
+  function mostrarRelatorioOuErro_(resp) {
+    if (resp.avaliacaoAutomatica) {
+      mostrarRelatorio(resp.avaliacaoAutomatica);
+      return;
+    }
+    var msg = resp.avaliacaoErro || 'motivo desconhecido';
+    document.getElementById('relatorioConteudo').innerHTML =
+      '<p style="text-align:center;font-size:15px;font-weight:700;margin-top:12px">A abordagem foi encerrada, mas não foi possível calcular a nota agora.</p>' +
+      '<p style="font-size:13px;color:var(--cinza);text-align:center">A IA de avaliação está indisponível no momento (' + msg + '). ' +
+      'Avise o instrutor com a data/hora e seu e-mail — enquanto a sessão não expirar (algumas horas), ainda é possível recuperar essa conversa e gerar a nota manualmente.</p>';
+    mostrarTela('tela-relatorio');
+    carregarContador();
   }
 
   function mostrarRelatorio(rel) {
