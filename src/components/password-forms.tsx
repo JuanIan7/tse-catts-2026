@@ -10,7 +10,7 @@ export function PasswordRecoveryForm() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const email = String(new FormData(event.currentTarget).get("email") ?? "");
-    await createSupabaseBrowserClient().auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/password/change` });
+    await createSupabaseBrowserClient().auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/auth/confirm?next=/password/change` });
     setMessage("Se houver uma conta com esse e-mail, enviaremos um link de redefinição.");
   }
 

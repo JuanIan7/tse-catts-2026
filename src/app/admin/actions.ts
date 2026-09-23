@@ -5,7 +5,7 @@ import { requireAdmin } from "@/lib/auth/authorization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const allowed = new Set(["APROVADO", "RECUSADO", "BLOQUEADO"]);
-const passwordChangeUrl = async () => `${(await headers()).get("origin") ?? "http://localhost:3000"}/password/change`;
+const passwordConfirmationUrl = async () => `${(await headers()).get("origin") ?? "http://localhost:3000"}/auth/confirm?next=/password/change`;
 
 export async function inviteUser(formData: FormData) {
   await requireAdmin();
@@ -15,7 +15,7 @@ export async function inviteUser(formData: FormData) {
 
   const { error } = await createSupabaseAdminClient().auth.admin.inviteUserByEmail(email, {
     data: { display_name: displayName },
-    redirectTo: await passwordChangeUrl(),
+    redirectTo: await passwordConfirmationUrl(),
   });
 
   if (error) throw new Error(`Não foi possível enviar o convite: ${error.message}`);
@@ -29,7 +29,7 @@ export async function sendPasswordReset(formData: FormData) {
   const admin = createSupabaseAdminClient();
   const { data, error: userError } = await admin.auth.admin.getUserById(userId);
   if (userError || !data.user?.email) throw new Error("Não foi possível localizar o e-mail do usuário.");
-  const { error } = await admin.auth.resetPasswordForEmail(data.user.email, { redirectTo: await passwordChangeUrl() });
+  const { error } = await admin.auth.resetPasswordForEmail(data.user.email, { redirectTo: await passwordConfirmationUrl() });
   if (error) throw new Error(`Não foi possível enviar a redefinição: ${error.message}`);
   revalidatePath("/admin");
 }
