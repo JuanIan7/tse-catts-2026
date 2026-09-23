@@ -6,6 +6,16 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const allowed = new Set(["APROVADO", "RECUSADO", "BLOQUEADO"]);
 
+export async function inviteUser(formData: FormData) {
+  await requireAdmin();
+  const email = String(formData.get("email") ?? "").trim();
+  const displayName = String(formData.get("displayName") ?? "").trim();
+  if (!email || !displayName) throw new Error("Nome e e-mail são obrigatórios.");
+  const { error } = await createSupabaseAdminClient().auth.admin.inviteUserByEmail(email, { data: { display_name: displayName } });
+  if (error) throw new Error("Não foi possível enviar o convite. Verifique o e-mail ou se ele já está cadastrado.");
+  revalidatePath("/admin");
+}
+
 export async function reviewAccess(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
   const decision = String(formData.get("decision") ?? "");
