@@ -1,0 +1,250 @@
+{
+  "meta": {
+    "nome": "Barema de Abordagem de Dissuasão CATTS I/2026",
+    "versao_do_arquivo": "0.3",
+    "fonte_primaria": "Ficha de Avaliação de Abordagem CATTS I/2026 - CBMERJ/CIEB",
+    "rotulo_obrigatorio": "ESTIMATIVA DIDÁTICA - NÃO É NOTA OFICIAL DO CURSO",
+    "quantidade_de_itens": 17,
+    "nota_base": 10.0,
+    "nota_minima": 0.0,
+    "nota_maxima": 10.0,
+    "arredondamento": 1
+  },
+  "itens": [
+    {
+      "id": "aproximacao_calma_silenciosa",
+      "titulo": "Aproximação calma e silenciosa",
+      "grupo": "subtrativo",
+      "estados": {
+        "feito": 0.0,
+        "nao_feito": -1.0,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "silencio_inicial",
+      "titulo": "Silêncio inicial",
+      "grupo": "subtrativo",
+      "estados": {
+        "feito": 0.0,
+        "nao_feito": -0.5,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "apresentacao_pessoal",
+      "titulo": "Apresentação pessoal",
+      "grupo": "subtrativo",
+      "estados": {
+        "feito": 0.0,
+        "nao_feito": -0.5,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "respeitou_pausas_silenciosas",
+      "titulo": "Respeitou pausas silenciosas",
+      "grupo": "subtrativo",
+      "estados": {
+        "feito": 0.0,
+        "nao_feito": -0.5,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "ouviu_atentamente_postura",
+      "titulo": "Ouviu atentamente / postura correta",
+      "grupo": "subtrativo",
+      "estados": {
+        "feito": 0.0,
+        "parcial": -0.25,
+        "nao_feito": -0.5,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "espaco_para_desabafo",
+      "titulo": "Deu espaço para o tentante desabafar",
+      "grupo": "subtrativo",
+      "estados": {
+        "feito": 0.0,
+        "nao_feito": -0.5,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "tom_de_voz",
+      "titulo": "Tom de voz",
+      "grupo": "subtrativo",
+      "estados": {
+        "adequado": 0.0,
+        "inadequado": -0.5,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "perguntas_simples_complexas",
+      "titulo": "Correlação perguntas simples + complexas",
+      "grupo": "aditivo",
+      "estados": {
+        "feito": 1.0,
+        "parcial": 0.5,
+        "nao_feito": 0.0,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "parafrase_resumida",
+      "titulo": "Paráfrase resumida",
+      "grupo": "aditivo",
+      "estados": {
+        "feito": 1.0,
+        "nao_feito": 0.0,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "memoria_linkada",
+      "titulo": "Memória linkada",
+      "grupo": "aditivo",
+      "estados": {
+        "feito": 1.0,
+        "nao_feito": 0.0,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "maieutica_ou_teia",
+      "titulo": "Maiêutica socrática ou Teia de Indução",
+      "grupo": "aditivo",
+      "estados": {
+        "feito": 1.0,
+        "nao_feito": 0.0,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "desistencia_ou_saida_digna",
+      "titulo": "Desistência impositiva ou Saída Digna",
+      "grupo": "aditivo",
+      "estados": {
+        "feito": 1.0,
+        "nao_feito": 0.0,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "dominou_dialogo",
+      "titulo": "Dominou o diálogo",
+      "grupo": "aditivo",
+      "estados": {
+        "feito": 1.0,
+        "parcial": 0.5,
+        "nao_feito": 0.0,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "conduziu_solucao",
+      "titulo": "Conduziu o tentante a encontrar a solução",
+      "grupo": "aditivo",
+      "estados": {
+        "feito": 1.0,
+        "parcial": 0.5,
+        "nao_feito": 0.0,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "fatores_protecao",
+      "titulo": "Fatores de proteção",
+      "grupo": "fator",
+      "estados": {
+        "encontrou_explorou": 1.0,
+        "encontrou_nao_explorou": 0.0,
+        "nao_encontrou": -1.0,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "fatores_risco",
+      "titulo": "Fatores de risco",
+      "grupo": "fator",
+      "estados": {
+        "encontrou_isolou": 1.0,
+        "encontrou_relembrou_mais_de_uma_vez": -1.0,
+        "nao_encontrou": 0.0,
+        "nao_observavel": 0.0
+      }
+    },
+    {
+      "id": "fator_principal",
+      "titulo": "Fator principal",
+      "grupo": "fator",
+      "estados": {
+        "encontrou_isolou": 1.0,
+        "compreendeu_com_deslizes_leves": 0.5,
+        "encontrou_insistiu": -1.0,
+        "nao_encontrou": 0.0,
+        "nao_observavel": 0.0
+      }
+    }
+  ],
+  "erros_graves": [
+    {
+      "id": "atentar_contra_seguranca",
+      "titulo": "Atentar contra a segurança",
+      "deducao": -5.0,
+      "aplicacao_maxima": 1
+    },
+    {
+      "id": "mentir",
+      "titulo": "Mentir",
+      "deducao": -4.0,
+      "aplicacao_maxima": 1
+    },
+    {
+      "id": "rir",
+      "titulo": "Rir",
+      "deducao": -4.0,
+      "aplicacao_maxima": 1
+    },
+    {
+      "id": "seduzir",
+      "titulo": "Seduzir",
+      "deducao": -2.0,
+      "aplicacao_maxima": 1
+    },
+    {
+      "id": "prometer_sem_poder_cumprir",
+      "titulo": "Prometer sem poder cumprir",
+      "deducao": -2.0,
+      "aplicacao_maxima": 1
+    },
+    {
+      "id": "perder_contato_visual",
+      "titulo": "Perder o contato visual",
+      "deducao": -2.0,
+      "aplicacao_maxima": 1
+    }
+  ],
+  "regras_de_calculo": [
+    "nota_bruta = 10.0 + soma dos ajustes dos 17 itens + soma das deduções dos erros graves aplicados",
+    "nota_final = limitar nota_bruta ao intervalo de 0.0 a 10.0",
+    "arredondar a nota final para uma casa decimal",
+    "cada item deve ter exatamente um estado permitido",
+    "cada erro grave exige evidência concreta e pode ser aplicado no máximo uma vez",
+    "erros graves são deduções adicionais e podem coexistir com ajuste do item relacionado",
+    "não observável produz ajuste zero; nunca presumir conduta física, postura, contato visual ou tom acústico",
+    "em avaliação parcial, itens sem oportunidade razoável são não observáveis e a cobertura deve ser informada",
+    "itens aditivos não realizados geram zero, nunca crédito presumido",
+    "a ficha não prevê dedução por não encontrar fatores de risco nem fator principal; nesses estados o ajuste é zero",
+    "não alterar a nota por impressão geral"
+  ],
+  "cobertura": {
+    "total_de_itens": 17,
+    "estado_excluido": "nao_observavel",
+    "formula": "quantidade de itens cujo estado seja diferente de nao_observavel / 17",
+    "aviso_parcial": "Pontuação parcial com baixa cobertura não é comparável a uma avaliação final."
+  }
+}
