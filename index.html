@@ -413,24 +413,38 @@
 
   var vozUsadaPeloNarrador_ = null;
 
+  // Um ÚNICO elemento <audio>, criado uma vez e reaproveitado para toda
+  // reprodução (narrador e tentante). No iOS, o desbloqueio de autoplay feito
+  // durante o toque do usuário (ver desbloquearAudio_) só vale para o MESMO
+  // elemento que recebeu aquele play() — um "new Audio(...)" criado depois,
+  // mesmo que seja só alguns segundos depois, volta a ficar bloqueado
+  // (NotAllowedError). Por isso nunca criamos um Audio novo para tocar as
+  // falas: sempre trocamos o .src deste mesmo elemento.
+  var audioPlayerEl_ = ('Audio' in window) ? new Audio() : null;
+
   /** Toca um áudio MP3 em base64 (vindo do Google Cloud TTS) e chama os callbacks certos. */
   function tocarAudioBase64_(base64Mp3, aoComecar, aoTerminar) {
+    if (!audioPlayerEl_) { if (aoTerminar) aoTerminar(); return; }
     try {
-      var audio = new Audio('data:audio/mp3;base64,' + base64Mp3);
-      audio.addEventListener('play', function () { logAudioDebug_('🔊 tocando (' + Math.round(audio.duration || 0) + 's)'); }, { once: true });
-      if (aoComecar) audio.addEventListener('play', aoComecar, { once: true });
-      audio.addEventListener('ended', function () { if (aoTerminar) aoTerminar(); }, { once: true });
-      audio.addEventListener('error', function () {
+      var audio = audioPlayerEl_;
+      audio.onplay = function () {
+        logAudioDebug_('🔊 tocando (' + Math.round(audio.duration || 0) + 's)');
+        if (aoComecar) aoComecar();
+      };
+      audio.onended = function () { if (aoTerminar) aoTerminar(); };
+      audio.onerror = function () {
         var err = audio.error;
         logAudioDebug_('🔇 erro ao tocar áudio (code ' + (err && err.code) + ')');
         if (aoTerminar) aoTerminar();
-      }, { once: true });
+      };
+      audio.src = 'data:audio/mp3;base64,' + base64Mp3;
+      audio.load();
       audio.play().catch(function (e) {
         logAudioDebug_('🔇 play() bloqueado: ' + (e && e.name) + ' — ' + (e && e.message));
         if (aoTerminar) aoTerminar();
       });
     } catch (e) {
-      logAudioDebug_('🔇 exceção ao criar áudio: ' + (e && e.message));
+      logAudioDebug_('🔇 exceção ao tocar áudio: ' + (e && e.message));
       if (aoTerminar) aoTerminar();
     }
   }
@@ -758,10 +772,11 @@
   }
 
   var AUDIO_SILENCIOSO_DATA_URI_ = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
-  var audioDestravado_ = null;
 
   // Desbloqueia o áudio no iOS/Safari: precisa ser chamado DENTRO de um toque
-  // real do usuário (não depois de uma resposta assíncrona do servidor).
+  // real do usuário (não depois de uma resposta assíncrona do servidor), e
+  // precisa usar o MESMO elemento <audio> (audioPlayerEl_) que depois vai
+  // tocar as falas de verdade — ver o comentário perto de tocarAudioBase64_.
   // São DOIS mecanismos de bloqueio separados no iOS — falar a voz do navegador
   // (speechSynthesis) NÃO libera a reprodução de elementos <audio> (usados pelos
   // áudios MP3 do Google Cloud TTS), por isso os dois precisam ser destravados aqui.
@@ -773,13 +788,14 @@
         window.speechSynthesis.speak(utter);
       } catch (e) {}
     }
+    if (!audioPlayerEl_) return;
     try {
       // Precisa ter amostras de verdade — um WAV com 0 bytes de áudio (data
       // chunk vazio) é rejeitado pelo Safari antes de "contar" como play(),
       // e nesse caso o destravamento não acontece de verdade.
-      var silencio = new Audio(AUDIO_SILENCIOSO_DATA_URI_);
-      audioDestravado_ = silencio;
-      var p = silencio.play();
+      audioPlayerEl_.src = AUDIO_SILENCIOSO_DATA_URI_;
+      audioPlayerEl_.load();
+      var p = audioPlayerEl_.play();
       if (p && p.then) {
         p.then(function () { logAudioDebug_('🔓 áudio destravado com sucesso'); })
           .catch(function (e) { logAudioDebug_('🔒 destravamento falhou: ' + (e && e.name) + ' — ' + (e && e.message)); });
