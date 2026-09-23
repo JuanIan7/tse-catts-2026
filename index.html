@@ -258,6 +258,7 @@
       <div class="status-icone" id="statusIcone">🎙️</div>
       <div class="status-texto" id="statusTexto">Sua vez de falar</div>
     </div>
+    <div id="debugAudio" class="escondido" style="font-size:12px;color:#999;text-align:center;padding:4px 8px;word-break:break-word;"></div>
     <div class="entrada-audio">
       <div class="barra-gravar" id="barraGravar">
         <span class="barra-icone" id="barraIcone">🎤</span>
@@ -416,11 +417,20 @@
   function tocarAudioBase64_(base64Mp3, aoComecar, aoTerminar) {
     try {
       var audio = new Audio('data:audio/mp3;base64,' + base64Mp3);
+      audio.addEventListener('play', function () { logAudioDebug_('🔊 tocando (' + Math.round(audio.duration || 0) + 's)'); }, { once: true });
       if (aoComecar) audio.addEventListener('play', aoComecar, { once: true });
       audio.addEventListener('ended', function () { if (aoTerminar) aoTerminar(); }, { once: true });
-      audio.addEventListener('error', function () { if (aoTerminar) aoTerminar(); }, { once: true });
-      audio.play().catch(function () { if (aoTerminar) aoTerminar(); });
+      audio.addEventListener('error', function () {
+        var err = audio.error;
+        logAudioDebug_('🔇 erro ao tocar áudio (code ' + (err && err.code) + ')');
+        if (aoTerminar) aoTerminar();
+      }, { once: true });
+      audio.play().catch(function (e) {
+        logAudioDebug_('🔇 play() bloqueado: ' + (e && e.name) + ' — ' + (e && e.message));
+        if (aoTerminar) aoTerminar();
+      });
     } catch (e) {
+      logAudioDebug_('🔇 exceção ao criar áudio: ' + (e && e.message));
       if (aoTerminar) aoTerminar();
     }
   }
@@ -735,6 +745,21 @@
 
   // ---------------- SIMULADOR ----------------
 
+  // WAV de 0,1s de silêncio (8-bit PCM, 8kHz) — precisa ter amostras de
+  // verdade; um WAV "vazio" (data chunk de 0 bytes) é rejeitado pelo Safari.
+  // Mostra uma linha pequena e discreta na tela com o que aconteceu com o
+  // áudio — não temos como abrir o console do iPhone remotamente, então
+  // isso é o jeito de enxergar o erro real caso o áudio falhe de novo.
+  function logAudioDebug_(msg) {
+    var el = document.getElementById('debugAudio');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('escondido');
+  }
+
+  var AUDIO_SILENCIOSO_DATA_URI_ = 'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+  var audioDestravado_ = null;
+
   // Desbloqueia o áudio no iOS/Safari: precisa ser chamado DENTRO de um toque
   // real do usuário (não depois de uma resposta assíncrona do servidor).
   // São DOIS mecanismos de bloqueio separados no iOS — falar a voz do navegador
@@ -749,10 +774,19 @@
       } catch (e) {}
     }
     try {
-      var silencio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
+      // Precisa ter amostras de verdade — um WAV com 0 bytes de áudio (data
+      // chunk vazio) é rejeitado pelo Safari antes de "contar" como play(),
+      // e nesse caso o destravamento não acontece de verdade.
+      var silencio = new Audio(AUDIO_SILENCIOSO_DATA_URI_);
+      audioDestravado_ = silencio;
       var p = silencio.play();
-      if (p && p.catch) p.catch(function () {});
-    } catch (e) {}
+      if (p && p.then) {
+        p.then(function () { logAudioDebug_('🔓 áudio destravado com sucesso'); })
+          .catch(function (e) { logAudioDebug_('🔒 destravamento falhou: ' + (e && e.name) + ' — ' + (e && e.message)); });
+      }
+    } catch (e) {
+      logAudioDebug_('🔒 exceção ao destravar: ' + (e && e.message));
+    }
   }
 
   function atualizarStatus(icone, texto, falando) {
