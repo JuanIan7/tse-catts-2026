@@ -120,6 +120,10 @@
     .status-icone { font-size: 46px; margin-bottom: 10px; }
     .status-icone.falando { animation: pulsar 1s infinite; }
     .status-texto { font-size: 15px; font-weight: 600; color: var(--cinza); }
+    .status-conversa.status-sucesso { background: var(--verde-fundo); border: 2px solid var(--verde); }
+    .status-conversa.status-sucesso .status-texto { color: var(--verde); font-size: 19px; font-weight: 800; }
+    .status-conversa.status-falha { background: var(--alerta-fundo); border: 2px solid var(--alerta); }
+    .status-conversa.status-falha .status-texto { color: #7a1c1c; font-size: 19px; font-weight: 800; }
     .bolha { max-width: 85%; padding: 10px 13px; border-radius: 12px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; }
     .bolha-sistema { align-self: center; background: var(--preto); color: var(--branco); font-size: 12px; text-align: center; max-width: 100%; }
     .bolha-tentante { align-self: flex-start; background: #eceae6; border-bottom-left-radius: 2px; }
@@ -403,9 +407,9 @@
     return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
   }
 
-  function iniciarCronometro_(metaMinSeg, metaMaxSeg) {
+  function iniciarCronometro_(metaMinSeg, metaMaxSeg, offsetSeg) {
     pararCronometro_();
-    cronometroInicioMs_ = Date.now();
+    cronometroInicioMs_ = Date.now() - (offsetSeg || 0) * 1000;
     var el = document.getElementById('cronometro');
     var elTempo = document.getElementById('cronometroTempo');
     var elMeta = document.getElementById('cronometroMeta');
@@ -741,9 +745,64 @@
   }
 
   function mostrarTela(id) {
-    if (id !== 'tela-simulador') pararCronometro_();
+    if (id !== 'tela-simulador') { pararCronometro_(); limparCasoAtivo_(); }
     document.querySelectorAll('main > section').forEach(function (s) { s.classList.add('escondido'); });
     document.getElementById(id).classList.remove('escondido');
+  }
+
+  // ---------------- RECUPERAÇÃO DE SESSÃO ----------------
+  // Se a página recarregar/travar no meio de uma abordagem (erro de rede,
+  // aba matada pelo sistema etc.), o servidor ainda tem a conversa guardada
+  // em cache — só precisamos saber o sessionId pra buscar de volta. Sem
+  // isso, um erro no meio do caminho perdia a abordagem inteira.
+  function salvarCasoAtivo_() {
+    try {
+      localStorage.setItem('tse_caso_ativo', JSON.stringify({
+        sessionId: casoAtual.sessionId, dificuldade: casoAtual.dificuldade, email: sessaoAtual.email,
+      }));
+    } catch (e) {}
+  }
+
+  function limparCasoAtivo_() {
+    try { localStorage.removeItem('tse_caso_ativo'); } catch (e) {}
+  }
+
+  function verificarCasoParaRetomar_() {
+    var bruto, salvo;
+    try { bruto = localStorage.getItem('tse_caso_ativo'); } catch (e) { return; }
+    if (!bruto) return;
+    try { salvo = JSON.parse(bruto); } catch (e) { limparCasoAtivo_(); return; }
+    if (!salvo || !salvo.sessionId || salvo.email !== sessaoAtual.email) { limparCasoAtivo_(); return; }
+    if (!confirm('Encontramos uma abordagem em andamento que não foi finalizada (provavelmente por um erro de conexão). Deseja continuar de onde parou?')) {
+      limparCasoAtivo_();
+      return;
+    }
+    retomarConversa_(salvo.sessionId, salvo.dificuldade);
+  }
+
+  function retomarConversa_(sessionId, dificuldade) {
+    chamarServidor('retomarSessao', sessionId, sessaoAtual.email)
+      .then(function (resp) {
+        if (resp.status !== 'em_andamento') { limparCasoAtivo_(); return; }
+        casoAtual.sessionId = sessionId;
+        casoAtual.dificuldade = dificuldade || resp.dificuldade;
+        prepararVoz(resp.voz);
+        salvarCasoAtivo_();
+        mostrarTela('tela-simulador');
+        document.getElementById('briefingCena').innerHTML =
+          '<div class="bolha bolha-sistema" style="max-width:100%">Abordagem retomada após uma interrupção — ' +
+          'a imagem original não fica salva, mas a conversa continua normalmente a partir daqui.</div>';
+        document.getElementById('chatLog').innerHTML = '';
+        (resp.historico || []).forEach(function (turno) {
+          adicionarBolha(turno.papel === 'user' ? 'aluno' : 'tentante', turno.texto);
+        });
+        document.getElementById('chatLog').classList.remove('escondido');
+        document.getElementById('statusConversa').classList.remove('escondido', 'status-sucesso', 'status-falha');
+        if (resp.tempo) iniciarCronometro_(resp.tempo.metaMinSeg, resp.tempo.metaMaxSeg, resp.segundosDecorridos);
+        atualizarStatus('🎙️', 'Sua vez de falar', false);
+        definirPodeFalar_(true);
+      })
+      .catch(function (e) { limparCasoAtivo_(); mostrarErroGenerico(e); });
   }
 
   function carregarContador() {
@@ -810,6 +869,7 @@
     document.getElementById('btnPainelAdmin').classList.toggle('escondido', !sessaoAtual.admin);
     mostrarTela('tela-menu');
     carregarContador();
+    verificarCasoParaRetomar_();
   }
 
   function sair() {
@@ -884,6 +944,7 @@
     document.getElementById('briefingCena').innerHTML = '<div class="carregando">Gerando ocorrência…</div>';
     document.getElementById('chatLog').innerHTML = '';
     document.getElementById('statusConversa').classList.add('escondido');
+    document.getElementById('statusConversa').classList.remove('status-sucesso', 'status-falha');
     pararCronometro_();
     document.getElementById('cronometro').classList.add('escondido');
     definirPodeFalar_(false);
@@ -892,6 +953,7 @@
       .then(function (resp) {
         casoAtual.sessionId = resp.sessionId;
         prepararVoz(resp.voz);
+        salvarCasoAtivo_();
         if (resp.tempo) iniciarCronometro_(resp.tempo.metaMinSeg, resp.tempo.metaMaxSeg);
         var briefing = document.getElementById('briefingCena');
         briefing.innerHTML = '';
@@ -963,16 +1025,22 @@
 
   /** Tratamento comum de fim de simulação, usado tanto por texto quanto por áudio. */
   function tratarDesfecho_(resp) {
-    if (resp.status === 'fim_positivo' || resp.status === 'fim_negativo') pararCronometro_();
+    if (resp.status === 'fim_positivo' || resp.status === 'fim_negativo') { pararCronometro_(); limparCasoAtivo_(); }
     if (resp.status === 'fim_positivo') {
       adicionarBolha('fim-positivo', resp.mensagemSistema);
       document.getElementById('chatLog').classList.remove('escondido');
-      document.getElementById('statusConversa').classList.add('escondido');
+      var statusEl = document.getElementById('statusConversa');
+      statusEl.classList.remove('escondido');
+      statusEl.classList.add('status-sucesso');
+      atualizarStatus('✅', 'Abordagem bem-sucedida!', false);
       definirPodeFalar_(false);
     } else if (resp.status === 'fim_negativo') {
       adicionarBolha('fim-negativo', resp.mensagemSistema);
       document.getElementById('chatLog').classList.remove('escondido');
-      document.getElementById('statusConversa').classList.add('escondido');
+      var statusEl2 = document.getElementById('statusConversa');
+      statusEl2.classList.remove('escondido');
+      statusEl2.classList.add('status-falha');
+      atualizarStatus('❌', 'Abordagem malsucedida', false);
       definirPodeFalar_(false);
       setTimeout(function () { mostrarRelatorio(resp.avaliacaoAutomatica); }, 1200);
     }
