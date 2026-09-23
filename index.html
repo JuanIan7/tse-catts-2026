@@ -112,6 +112,10 @@
     .imagens-duplas { display: flex; gap: 8px; margin-bottom: 4px; }
     .imagens-duplas .imagem-cena { flex: 1 1 60%; margin-bottom: 0; max-height: 220px; }
     .imagens-duplas .imagem-personagem { flex: 1 1 40%; margin-bottom: 0; max-height: 220px; width: auto; object-fit: cover; border-radius: 10px; }
+    .cronometro { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: var(--cinza); margin-bottom: 10px; }
+    .cronometro .tempo { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 15px; color: var(--marca-escura); }
+    .cronometro.dentro-da-meta .tempo { color: #2a7a3d; }
+    .cronometro.acima-da-meta .tempo { color: #a3202c; }
     .status-conversa { text-align: center; padding: 36px 16px; margin-bottom: 12px; background: var(--cinza-claro); border-radius: 12px; }
     .status-icone { font-size: 46px; margin-bottom: 10px; }
     .status-icone.falando { animation: pulsar 1s infinite; }
@@ -255,6 +259,10 @@
   <!-- TELA: SIMULADOR -->
   <section id="tela-simulador" class="cartao escondido">
     <h2>Ocorrência em andamento</h2>
+    <div class="cronometro escondido" id="cronometro">
+      ⏱️ <span class="tempo" id="cronometroTempo">00:00</span>
+      <span id="cronometroMeta"></span>
+    </div>
     <div class="chat-log" id="briefingCena"></div>
     <div class="chat-log escondido" id="chatLog"></div>
     <div class="status-conversa escondido" id="statusConversa">
@@ -381,6 +389,40 @@
 
   var sessaoAtual = { email: '', nome: '', matricula: '', admin: false };
   var casoAtual = { sessionId: null, dificuldade: 'media', voz: null };
+
+  // ---------------- CRONÔMETRO DA ABORDAGEM ----------------
+  var cronometroIntervalo_ = null;
+  var cronometroInicioMs_ = null;
+
+  function formatarMinSeg_(totalSeg) {
+    var m = Math.floor(totalSeg / 60);
+    var s = totalSeg % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function iniciarCronometro_(metaMinSeg, metaMaxSeg) {
+    pararCronometro_();
+    cronometroInicioMs_ = Date.now();
+    var el = document.getElementById('cronometro');
+    var elTempo = document.getElementById('cronometroTempo');
+    var elMeta = document.getElementById('cronometroMeta');
+    elMeta.textContent = metaMaxSeg ? ('· meta: até ' + formatarMinSeg_(metaMaxSeg)) : '';
+    el.classList.remove('escondido', 'dentro-da-meta', 'acima-da-meta');
+    function atualizar() {
+      var decorridoSeg = Math.floor((Date.now() - cronometroInicioMs_) / 1000);
+      elTempo.textContent = formatarMinSeg_(decorridoSeg);
+      if (metaMaxSeg) {
+        el.classList.toggle('acima-da-meta', decorridoSeg > metaMaxSeg);
+        el.classList.toggle('dentro-da-meta', decorridoSeg <= metaMaxSeg);
+      }
+    }
+    atualizar();
+    cronometroIntervalo_ = setInterval(atualizar, 1000);
+  }
+
+  function pararCronometro_() {
+    if (cronometroIntervalo_) { clearInterval(cronometroIntervalo_); cronometroIntervalo_ = null; }
+  }
 
   // ---------------- VOZ DO TENTANTE (Text-to-Speech) ----------------
   var vozesDisponiveis = [];
@@ -696,6 +738,7 @@
   }
 
   function mostrarTela(id) {
+    if (id !== 'tela-simulador') pararCronometro_();
     document.querySelectorAll('main > section').forEach(function (s) { s.classList.add('escondido'); });
     document.getElementById(id).classList.remove('escondido');
   }
@@ -838,12 +881,15 @@
     document.getElementById('briefingCena').innerHTML = '<div class="carregando">Gerando ocorrência…</div>';
     document.getElementById('chatLog').innerHTML = '';
     document.getElementById('statusConversa').classList.add('escondido');
+    pararCronometro_();
+    document.getElementById('cronometro').classList.add('escondido');
     definirPodeFalar_(false);
     mostrarTela('tela-simulador');
     chamarServidor('iniciarCaso', sessaoAtual.email, casoAtual.dificuldade)
       .then(function (resp) {
         casoAtual.sessionId = resp.sessionId;
         prepararVoz(resp.voz);
+        if (resp.tempo) iniciarCronometro_(resp.tempo.metaMinSeg, resp.tempo.metaMaxSeg);
         var briefing = document.getElementById('briefingCena');
         briefing.innerHTML = '';
         if (resp.imagemCena || resp.imagemPersonagem) {
@@ -914,6 +960,7 @@
 
   /** Tratamento comum de fim de simulação, usado tanto por texto quanto por áudio. */
   function tratarDesfecho_(resp) {
+    if (resp.status === 'fim_positivo' || resp.status === 'fim_negativo') pararCronometro_();
     if (resp.status === 'fim_positivo') {
       adicionarBolha('fim-positivo', resp.mensagemSistema);
       document.getElementById('chatLog').classList.remove('escondido');
