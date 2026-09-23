@@ -367,8 +367,11 @@
     var controlador = ('AbortController' in window) ? new AbortController() : null;
     // Sem isso, uma chamada travada (ex.: Gemini demorando ou caindo em
     // limite de taxa) deixava a tela presa em "Aguardando..." pra sempre,
-    // sem nenhum erro visível.
-    var tempoLimite = controlador ? setTimeout(function () { controlador.abort(); }, 55000) : null;
+    // sem nenhum erro visível. iniciarCaso tem um limite maior porque faz até
+    // 3 chamadas seguidas ao Gemini (texto + 2 imagens), cada uma com sua
+    // própria nova tentativa embutida em caso de limite de taxa.
+    var limiteMs = fn === 'iniciarCaso' ? 110000 : 60000;
+    var tempoLimite = controlador ? setTimeout(function () { controlador.abort(); }, limiteMs) : null;
     return fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita preflight CORS
