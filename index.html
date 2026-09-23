@@ -352,6 +352,11 @@
     <div class="linha-botoes"><button class="btn-primario" onclick="adicionarCaso()">Salvar caso</button></div>
     <div id="listaCasos" style="margin-top:12px"></div>
 
+    <h3 style="margin-top:24px">Histórico de conversas (só você vê)</h3>
+    <p style="font-size:12px;color:var(--cinza)">Todas as abordagens finalizadas ficam registradas aqui — diálogo completo, pra você revisar e ajustar a doutrina com base no uso real.</p>
+    <div id="listaTranscricoes" class="carregando">carregando…</div>
+    <div id="detalheTranscricao"></div>
+
     <div class="linha-botoes" style="margin-top:20px"><button class="btn-secundario" onclick="mostrarTela('tela-menu')">Voltar</button></div>
   </section>
 
@@ -1154,6 +1159,7 @@
     mostrarTela('tela-admin');
     carregarListaLiberados();
     carregarListaCasos();
+    carregarListaTranscricoes();
   }
 
   function carregarListaLiberados() {
@@ -1216,6 +1222,41 @@
         document.getElementById('casoLicao').value = '';
         document.getElementById('casoAtivo').checked = false;
         carregarListaCasos();
+      })
+      .catch(mostrarErroGenerico);
+  }
+
+  function carregarListaTranscricoes() {
+    chamarServidor('listarTranscricoes', sessaoAtual.email)
+      .then(function (lista) {
+        var html = lista.map(function (t) {
+          return '<div class="lista-casos-item" style="cursor:pointer" onclick="abrirTranscricao(\'' + t.id + '\')">' +
+            '<div class="topo"><strong>' + (t.nome || t.email) + '</strong>' +
+            '<span class="tipo-badge tipo-' + t.tipoTentante + '">' + t.tipoTentante + '</span></div>' +
+            '<div style="font-size:11px;color:var(--cinza);margin-top:4px">' +
+            new Date(t.dataHora).toLocaleString('pt-BR') + ' · ' + t.dificuldade + ' · ' + t.resultado +
+            ' · nota <strong>' + Number(t.nota).toFixed(2) + '</strong></div></div>';
+        }).join('') || '<p style="font-size:12px;color:var(--cinza)">Nenhuma abordagem finalizada ainda.</p>';
+        document.getElementById('listaTranscricoes').innerHTML = html;
+      })
+      .catch(mostrarErroGenerico);
+  }
+
+  function abrirTranscricao(id) {
+    document.getElementById('detalheTranscricao').innerHTML = '<div class="carregando">carregando…</div>';
+    chamarServidor('obterTranscricao', sessaoAtual.email, id)
+      .then(function (t) {
+        var html = '<div style="margin-top:12px;border-top:1px solid var(--cinza-claro);padding-top:12px">' +
+          '<button class="btn-secundario" style="padding:4px 10px;font-size:11px" onclick="document.getElementById(\'detalheTranscricao\').innerHTML=\'\'">Fechar</button>' +
+          '<p style="font-size:12px;margin-top:8px"><strong>Fator principal:</strong> ' + (t.ficha.fatorPrincipal || '—') + '</p>' +
+          '<p style="font-size:12px"><strong>Fatores de risco:</strong> ' + ((t.ficha.fatoresRisco || []).join(' | ')) + '</p>' +
+          '<p style="font-size:12px"><strong>Fatores de proteção:</strong> ' + ((t.ficha.fatoresProtecao || []).join(' | ')) + '</p>' +
+          '<div class="chat-log" style="max-height:none;margin-top:10px">';
+        (t.historico || []).forEach(function (turno) {
+          html += '<div class="bolha bolha-' + (turno.papel === 'user' ? 'aluno' : 'tentante') + '">' + turno.texto + '</div>';
+        });
+        html += '</div></div>';
+        document.getElementById('detalheTranscricao').innerHTML = html;
       })
       .catch(mostrarErroGenerico);
   }
