@@ -352,16 +352,27 @@
 
   function chamarServidor(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
+    var controlador = ('AbortController' in window) ? new AbortController() : null;
+    // Sem isso, uma chamada travada (ex.: Gemini demorando ou caindo em
+    // limite de taxa) deixava a tela presa em "Aguardando..." pra sempre,
+    // sem nenhum erro visível.
+    var tempoLimite = controlador ? setTimeout(function () { controlador.abort(); }, 55000) : null;
     return fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita preflight CORS
       body: JSON.stringify({ fn: fn, args: args }),
+      signal: controlador ? controlador.signal : undefined,
     })
       .then(function (r) { return r.json(); })
       .then(function (json) {
         if (!json.ok) throw new Error(json.erro || 'Erro no servidor');
         return json.dados;
-      });
+      })
+      .catch(function (erro) {
+        if (erro && erro.name === 'AbortError') throw new Error('O servidor demorou demais para responder. Tente novamente.');
+        throw erro;
+      })
+      .finally(function () { if (tempoLimite) clearTimeout(tempoLimite); });
   }
 
   var sessaoAtual = { email: '', nome: '', matricula: '', admin: false };
@@ -726,12 +737,21 @@
 
   // Desbloqueia o áudio no iOS/Safari: precisa ser chamado DENTRO de um toque
   // real do usuário (não depois de uma resposta assíncrona do servidor).
+  // São DOIS mecanismos de bloqueio separados no iOS — falar a voz do navegador
+  // (speechSynthesis) NÃO libera a reprodução de elementos <audio> (usados pelos
+  // áudios MP3 do Google Cloud TTS), por isso os dois precisam ser destravados aqui.
   function desbloquearAudio_() {
-    if (!('speechSynthesis' in window)) return;
+    if ('speechSynthesis' in window) {
+      try {
+        var utter = new SpeechSynthesisUtterance(' ');
+        utter.volume = 0.01;
+        window.speechSynthesis.speak(utter);
+      } catch (e) {}
+    }
     try {
-      var utter = new SpeechSynthesisUtterance(' ');
-      utter.volume = 0.01;
-      window.speechSynthesis.speak(utter);
+      var silencio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
+      var p = silencio.play();
+      if (p && p.catch) p.catch(function () {});
     } catch (e) {}
   }
 
