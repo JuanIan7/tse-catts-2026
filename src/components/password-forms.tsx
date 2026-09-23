@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -10,9 +10,7 @@ export function PasswordRecoveryForm() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const email = String(new FormData(event.currentTarget).get("email") ?? "");
-    await createSupabaseBrowserClient().auth.resetPasswordForEmail(email, {
-      redirectTo: `${location.origin}/auth/callback?next=/password/change`,
-    });
+    await createSupabaseBrowserClient().auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/password/change` });
     setMessage("Se houver uma conta com esse e-mail, enviaremos um link de redefinição.");
   }
 
@@ -20,8 +18,17 @@ export function PasswordRecoveryForm() {
 }
 
 export function ChangePasswordForm() {
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState("Validando link...");
+  const [ready, setReady] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    createSupabaseBrowserClient().auth.getSession().then(({ data, error }) => {
+      if (error || !data.session) return setMessage("O link expirou ou não é válido. Solicite outro link.");
+      setReady(true);
+      setMessage("");
+    });
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -36,5 +43,5 @@ export function ChangePasswordForm() {
     setTimeout(() => router.replace("/login"), 900);
   }
 
-  return <form onSubmit={submit}><p><label>Nova senha <input name="password" type="password" minLength={8} required /></label></p><p><label>Confirmar nova senha <input name="confirm" type="password" minLength={8} required /></label></p><button type="submit">Salvar nova senha</button>{message && <p role="status">{message}</p>}</form>;
+  return <form onSubmit={submit}><p><label>Nova senha <input name="password" type="password" minLength={8} required disabled={!ready} /></label></p><p><label>Confirmar nova senha <input name="confirm" type="password" minLength={8} required disabled={!ready} /></label></p><button type="submit" disabled={!ready}>Salvar nova senha</button>{message && <p role="status">{message}</p>}</form>;
 }
