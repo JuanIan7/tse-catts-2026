@@ -6,7 +6,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export function PasswordRecoveryForm() {
   const [message, setMessage] = useState("");
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const email = String(new FormData(event.currentTarget).get("email") ?? ""); await createSupabaseBrowserClient().auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/password/change` }); setMessage("Se houver uma conta com esse e-mail, enviaremos um link de redefinição."); }
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const email = String(new FormData(event.currentTarget).get("email") ?? ""); await createSupabaseBrowserClient().auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/auth/callback?next=/password/change` }); setMessage("Se houver uma conta com esse e-mail, enviaremos um link de redefinição."); }
   return <form onSubmit={submit}><p><label>E-mail <input name="email" type="email" required /></label></p><button type="submit">Enviar link de redefinição</button>{message && <p role="status">{message}</p>}</form>;
 }
 
