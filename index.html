@@ -243,6 +243,9 @@
     <div class="linha-botoes">
       <button class="btn-secundario" onclick="sair()">Sair</button>
     </div>
+    <h3 style="margin-top:24px">Suas últimas abordagens</h3>
+    <p style="font-size:12px;color:var(--cinza)">Fica salvo no servidor — se a tela travar ou a página recarregar no fim de uma abordagem, o resultado aparece aqui assim que for processado.</p>
+    <div id="minhasUltimas" class="carregando">carregando…</div>
   </section>
 
   <!-- TELA: ESCOLHER DIFICULDADE -->
@@ -378,8 +381,15 @@
     // limite de taxa) deixava a tela presa em "Aguardando..." pra sempre,
     // sem nenhum erro visível. iniciarCaso tem um limite maior porque faz até
     // 3 chamadas seguidas ao Gemini (texto + 2 imagens), cada uma com sua
-    // própria nova tentativa embutida em caso de limite de taxa.
-    var limiteMs = fn === 'iniciarCaso' ? 110000 : 60000;
+    // própria nova tentativa embutida em caso de limite de taxa. enviarFala/
+    // enviarFalaAudio também precisam de folga: no turno que encerra a
+    // abordagem, o servidor encadeia a interpretação do turno + o cálculo
+    // automático da nota numa ÚNICA chamada — em conversas longas (histórico
+    // grande) isso passa fácil de 60s. Um aluno real perdeu o resultado da
+    // abordagem inteira por causa desse timeout curto demais (o servidor
+    // tinha terminado e salvo tudo certinho, só o navegador dele desistiu de
+    // esperar antes da resposta chegar).
+    var limiteMs = fn === 'iniciarCaso' ? 110000 : (fn === 'enviarFala' || fn === 'enviarFalaAudio' ? 120000 : 60000);
     var tempoLimite = controlador ? setTimeout(function () { controlador.abort(); }, limiteMs) : null;
     return fetch(APPS_SCRIPT_URL, {
       method: 'POST',
@@ -874,7 +884,41 @@
     document.getElementById('btnPainelAdmin').classList.toggle('escondido', !sessaoAtual.admin);
     mostrarTela('tela-menu');
     carregarContador();
+    carregarMinhasUltimas_();
     verificarCasoParaRetomar_();
+  }
+
+  /**
+   * Últimos resultados do PRÓPRIO aluno, direto do servidor — funciona como
+   * rede de segurança: se o navegador travar/perder a resposta bem no fim de
+   * uma abordagem (ex.: timeout numa conversa longa), o resultado já ficou
+   * salvo no servidor mesmo assim, e aparece aqui assim que o aluno voltar
+   * ao menu (mesmo depois de recarregar a página inteira).
+   */
+  function carregarMinhasUltimas_() {
+    var el = document.getElementById('minhasUltimas');
+    el.className = 'carregando';
+    el.textContent = 'carregando…';
+    chamarServidor('obterMinhasTentativas', sessaoAtual.email)
+      .then(function (lista) {
+        el.className = '';
+        var ultimas = (lista || []).slice(0, 3);
+        if (!ultimas.length) {
+          el.innerHTML = '<p style="font-size:12px;color:var(--cinza)">Nenhuma abordagem finalizada ainda.</p>';
+          return;
+        }
+        el.innerHTML = ultimas.map(function (t) {
+          return '<div class="lista-casos-item"><div class="topo"><strong>' +
+            new Date(t.dataHora).toLocaleString('pt-BR') + '</strong>' +
+            '<span class="tipo-badge tipo-' + t.tipoTentante + '">' + t.tipoTentante + '</span></div>' +
+            '<div style="font-size:12px;color:var(--cinza);margin-top:4px">' + t.dificuldade + ' · ' + t.resultado +
+            ' · nota <strong>' + (typeof t.nota === 'number' ? t.nota.toFixed(2) : '—') + '</strong></div></div>';
+        }).join('');
+      })
+      .catch(function () {
+        el.className = '';
+        el.innerHTML = '<p style="font-size:12px;color:var(--cinza)">Não foi possível carregar agora.</p>';
+      });
   }
 
   function sair() {
@@ -1030,8 +1074,17 @@
 
   /** Tratamento comum de fim de simulação, usado tanto por texto quanto por áudio. */
   function tratarDesfecho_(resp) {
-    if (resp.status === 'fim_positivo' || resp.status === 'fim_negativo') { pararCronometro_(); limparCasoAtivo_(); }
-    if (resp.status === 'fim_positivo') {
+    if (resp.status === 'fim_positivo' || resp.status === 'fim_negativo' || resp.status === 'tempo_esgotado') { pararCronometro_(); limparCasoAtivo_(); }
+    if (resp.status === 'tempo_esgotado') {
+      adicionarBolha('fim-negativo', resp.mensagemSistema);
+      document.getElementById('chatLog').classList.remove('escondido');
+      var statusEl3 = document.getElementById('statusConversa');
+      statusEl3.classList.remove('escondido');
+      statusEl3.classList.add('status-falha');
+      atualizarStatus('⏰', 'Tempo máximo atingido', false);
+      definirPodeFalar_(false);
+      setTimeout(function () { mostrarRelatorioOuErro_(resp); }, 1200);
+    } else if (resp.status === 'fim_positivo') {
       adicionarBolha('fim-positivo', resp.mensagemSistema);
       document.getElementById('chatLog').classList.remove('escondido');
       var statusEl = document.getElementById('statusConversa');
