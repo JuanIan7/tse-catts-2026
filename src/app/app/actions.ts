@@ -36,7 +36,7 @@ export async function createTrainingSession(formData: FormData) {
     p_speaker: "PERSONAGEM",
     p_content: openingCharacterLine(internalCase),
     p_source: "SISTEMA",
-    p_delivery_status: "OUVIDO",
+    p_delivery_status: "PENDENTE",
     p_event_metadata: { event: "ABERTURA" },
   });
   if (openingError) {
