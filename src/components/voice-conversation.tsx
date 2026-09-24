@@ -41,6 +41,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
   const sendingRef = useRef(false);
   const initialAudioRef = useRef<{ narration: PreparedAudio; character: PreparedAudio } | null>(null);
   const initialStartedRef = useRef(false);
+  const pressActiveRef = useRef(false);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
@@ -148,8 +149,13 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
     catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível registrar o consentimento."); }
   }
 
-  async function getStream() {
-    if (streamRef.current) return streamRef.current;
+  function releaseStream(stream: MediaStream | null) {
+    stream?.getTracks().forEach((track) => track.stop());
+    if (streamRef.current === stream) streamRef.current = null;
+  }
+
+  async function getFreshStream() {
+    releaseStream(streamRef.current);
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") throw new Error("Este navegador não permite gravação pelo microfone. Use texto para continuar.");
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     streamRef.current = stream;
@@ -173,7 +179,12 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
     const recorder = new MediaRecorder(stream, recorderOptions());
     recorderRef.current = recorder;
     recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
-    recorder.onstop = () => { const blob = new Blob(chunksRef.current, { type: recorder.mimeType || chunksRef.current[0]?.type || "audio/webm" }); recorderRef.current = null; void uploadRecording(blob); };
+    recorder.onstop = () => {
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || chunksRef.current[0]?.type || "audio/webm" });
+      recorderRef.current = null;
+      if (mode === "PRESSIONAR_PARA_FALAR") releaseStream(stream);
+      void uploadRecording(blob);
+    };
     recorder.onerror = () => { setPhase("idle"); setError("O navegador interrompeu a gravação. Tente novamente ou use texto."); };
     recorder.start(250); setPhase("recording"); setStatus(mode === "MICROFONE_ABERTO" ? "Microfone aberto — estou ouvindo…" : "Você está falando — solte para enviar.");
     window.setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, 90_000);
@@ -191,17 +202,28 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
 
   async function beginPress() {
     if (!consented || sendingRef.current) return;
-    try { if (phaseRef.current === "playing") await interruptCharacter(); startRecording(await getStream()); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível acessar o microfone."); }
+    pressActiveRef.current = true;
+    try {
+      if (phaseRef.current === "playing") await interruptCharacter();
+      const stream = await getFreshStream();
+      if (!pressActiveRef.current) { releaseStream(stream); return; }
+      startRecording(stream);
+    } catch (cause) {
+      pressActiveRef.current = false;
+      setError(cause instanceof Error ? cause.message : "Não foi possível acessar o microfone.");
+    }
   }
 
-  function endPress() { if (recorderRef.current?.state === "recording") recorderRef.current.stop(); }
+  function endPress() {
+    pressActiveRef.current = false;
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+  }
 
   async function toggleOpenMic() {
     if (openMic) { stopOpenMic(); setStatus("Microfone aberto desativado."); return; }
     if (!consented) return;
     try {
-      const stream = await getStream();
+      const stream = await getFreshStream();
       const context = new AudioContext(); await context.resume();
       const analyser = context.createAnalyser(); analyser.fftSize = 1024;
       context.createMediaStreamSource(stream).connect(analyser);
