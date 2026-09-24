@@ -8,6 +8,7 @@ const internalCaseSchema = z.object({
   fatores_risco: z.array(z.string().min(1)).min(2),
   fatores_protecao: z.array(z.string().min(1)).min(2),
   perfil_comportamental: z.string().min(1),
+  perfil_tipo: z.enum(["AGRESSIVO", "DEPRESSIVO", "PSICOTICO"]).optional(),
   contexto: z.string().min(1),
   vinculos: z.array(z.string().min(1)).min(1),
   observaveis: z.array(z.string().min(1)).min(1),
@@ -42,7 +43,8 @@ const templates: ScenarioTemplate[] = [
       fator_principal: "ruptura recente de vínculo afetivo relevante",
       fatores_risco: ["isolamento progressivo", "sono prejudicado nas últimas semanas", "sentimento persistente de desesperança"],
       fatores_protecao: ["vínculo afetivo com uma filha", "relação de confiança com uma irmã", "histórico de buscar ajuda em momentos difíceis"],
-      perfil_comportamental: "retraído, com fala baixa e respostas inicialmente curtas",
+      perfil_comportamental: "depressivo e retraído; começa chorando, afasta o abordador e só se abre após várias falas de escuta",
+      perfil_tipo: "DEPRESSIVO",
       contexto: "mirante urbano arborizado ao entardecer, com circulação reduzida e equipe chegando para abordagem inicial",
       vinculos: ["filha em idade escolar", "irmã que mora na mesma cidade"],
       observaveis: ["pessoa adulta imóvel e silenciosa", "olhar voltado para baixo", "ombros tensos", "roupa compatível com o clima"],
@@ -70,7 +72,8 @@ const templates: ScenarioTemplate[] = [
       fator_principal: "perda recente de referência profissional e sentido de pertencimento",
       fatores_risco: ["retraimento social", "dificuldade financeira recente", "autocrítica intensa"],
       fatores_protecao: ["amizade duradoura", "participação anterior em atividade comunitária", "responsabilidade afetiva com um animal de estimação"],
-      perfil_comportamental: "ambivalente, irritadiço no início e mais comunicativo quando escutado",
+      perfil_comportamental: "agressivo e agitado; começa hostil, xinga sem eufemismos e manda o abordador se afastar; nunca ri da situação",
+      perfil_tipo: "AGRESSIVO",
       contexto: "passarela ampla de um terminal desativado no início da noite, com iluminação artificial e equipe se aproximando com cautela",
       vinculos: ["amigo de longa data", "grupo comunitário de bairro"],
       observaveis: ["pessoa adulta caminhando lentamente", "mãos fechadas", "respostas defensivas ao contato inicial", "atenção alternando entre a equipe e o ambiente"],
@@ -93,7 +96,47 @@ const templates: ScenarioTemplate[] = [
       orientacao: "Evite confronto e pressa. Apresente-se, reconheça o incômodo da pessoa e permita que ela determine o ritmo inicial da conversa.",
     },
   },
+  {
+    internalCase: {
+      fator_principal: "interrupção recente de acompanhamento em saúde mental, acompanhada de confusão e medo",
+      fatores_risco: ["isolamento nas últimas semanas", "sono muito irregular", "desconfiança crescente das pessoas próximas"],
+      fatores_protecao: ["irmã que mantém contato frequente", "histórico de aceitar apoio de uma equipe de saúde", "vínculo com atividade artística comunitária"],
+      perfil_comportamental: "psicótico e desorganizado; fala de vozes e portais de forma não gráfica, teme aproximação e não recupera lucidez repentinamente",
+      perfil_tipo: "PSICOTICO",
+      contexto: "quarto de uma residência ao anoitecer, com equipe de abordagem posicionada à entrada e ambiente preservado",
+      vinculos: ["irmã que acionou ajuda", "grupo de arte da comunidade"],
+      observaveis: ["pessoa adulta inquieta", "olhar alternando entre a equipe e pontos vazios da sala", "fala fragmentada e desconexa", "mãos tensas"],
+      ocultas: ["parou de comparecer ao acompanhamento", "teme que a equipe queira puni-la"],
+      condicoes_evolucao: ["validar o medo sem confirmar percepções irreais", "usar frases simples", "manter ritmo calmo e previsível"],
+      condicoes_saida: ["aceitação inequívoca de apoio seguro", "acordo concreto de acompanhamento", "retomada voluntária de vínculo protetivo"],
+    },
+    publicBriefing: {
+      titulo: "Ocorrência simulada — residência ao anoitecer",
+      acionamento: "Uma familiar acionou a equipe após perceber que uma pessoa adulta passou a noite acordada, muito assustada e falando de modo difícil de acompanhar.",
+      contexto_observavel: "A equipe chega a uma residência no início da noite. A familiar aguarda fora do cômodo e relata que a pessoa quase não dormiu. Dentro do quarto, a pessoa adulta permanece de pé, alterna o olhar entre a porta e pontos vazios do ambiente e responde com frases fragmentadas. Não há movimentação rápida da equipe nem objetos perigosos visíveis no espaço imediato.",
+      informacoes_recebidas: [
+        "A familiar informou que o contato verbal ficou mais difícil ao longo do dia.",
+        "Ela pediu que a equipe se apresente com calma e evite entrar de surpresa.",
+        "Não há outras pessoas dentro do cômodo.",
+      ],
+      observaveis_iniciais: ["fala fragmentada", "olhar inquieto", "postura de alerta", "respostas pouco conectadas às perguntas"],
+      condicoes_da_cena: ["porta e percurso de saída desobstruídos", "iluminação suficiente para contato visual", "familiar fora do cômodo", "equipe de apoio mantida a distância"],
+      aparencia_observavel: "Pessoa adulta jovem com roupas cotidianas amarrotadas, aparência cansada e expressão de medo, olhando repetidamente para diferentes pontos do quarto.",
+      orientacao: "Apresente-se com frases curtas. Reconheça o medo sem confirmar percepções que você não compartilha e preserve a segurança da cena.",
+    },
+  },
 ];
+
+export function openingCharacterLine(internalCase: InternalCase) {
+  switch (internalCase.perfil_tipo) {
+    case "AGRESSIVO":
+      return "Que porra é essa? Quem chamou você? Fica longe de mim, caralho. Não vem bancar o herói.";
+    case "PSICOTICO":
+      return "Espera... você está ouvindo? A porta falou de novo. Não chega perto, eles disseram que você também vê o portal.";
+    default:
+      return "Não... não, fica aí. Eu não quero conversar com ninguém agora.";
+  }
+}
 
 export function briefingNarration(briefing: PublicBriefing) {
   return [

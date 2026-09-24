@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/lib/auth/authorization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { normalizePublicBriefing } from "@/lib/tse/briefing";
+import { openAIErrorMessage } from "@/lib/tse/openai-error";
 import { generateCharacterImage, generatePovImage } from "@/lib/tse/pov-image";
 import type { Difficulty, InternalCase } from "@/lib/tse/session-case";
 
@@ -40,6 +41,9 @@ export async function POST(_: Request, { params }: { params: Promise<{ sessionId
   if (Object.keys(updates).length) await admin.from("training_sessions").update(updates).eq("id", sessionId);
   const location = Boolean(session.image_path || updates.image_path);
   const character = Boolean(session.character_image_path || updates.character_image_path);
-  if (!location && !character) return NextResponse.json({ error: "As imagens ainda não puderam ser geradas. A ocorrência continua disponível." }, { status: 502 });
+  if (!location && !character) {
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    return NextResponse.json({ error: openAIErrorMessage(rejected?.reason, "gerar as imagens da ocorrência") }, { status: 502 });
+  }
   return NextResponse.json({ location, character, generated: true });
 }

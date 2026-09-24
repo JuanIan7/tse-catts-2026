@@ -2,16 +2,10 @@ import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/lib/auth/authorization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recordStudentTurn } from "@/lib/tse/conversation";
+import { openAIResponseError } from "@/lib/tse/openai-error";
 
 export const runtime = "nodejs";
 const activeStatuses = new Set(["CRIADA", "EM_ANDAMENTO", "RECONEXAO"]);
-
-function transcriptionError(status: number) {
-  if (status === 400 || status === 415 || status === 422) return "O formato gravado pelo navegador não pôde ser transcrito. Atualize a página e tente novamente.";
-  if (status === 429) return "O serviço de transcrição atingiu o limite temporário. Aguarde um instante e tente novamente.";
-  if (status === 401 || status === 403) return "A integração de voz precisa ser revisada pelo administrador.";
-  return "O serviço de transcrição está temporariamente indisponível. Sua sessão continua salva; tente novamente ou use texto.";
-}
 
 export async function POST(request: Request, { params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params;
@@ -36,20 +30,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
   transcriptionForm.set("file", audio, audio.name || "fala.webm");
   transcriptionForm.set("model", "gpt-4o-mini-transcribe");
   transcriptionForm.set("language", "pt");
-  const transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: transcriptionForm,
-  });
+  let transcriptionResponse: Response;
+  try {
+    transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: transcriptionForm,
+    });
+  } catch {
+    return NextResponse.json({ error: "Sem conexão com o serviço de transcrição. Tente novamente." }, { status: 503 });
+  }
   if (!transcriptionResponse.ok) {
     const requestId = transcriptionResponse.headers.get("x-request-id");
+    const error = await openAIResponseError(transcriptionResponse, "transcrever a fala");
     console.error("Falha na transcrição de voz", { status: transcriptionResponse.status, requestId, mimeType: audio.type, size: audio.size });
-    return NextResponse.json({ error: transcriptionError(transcriptionResponse.status) }, { status: 502 });
+    return NextResponse.json({ error }, { status: 502 });
   }
 
   const transcription = await transcriptionResponse.json() as { text?: string };
   const text = transcription.text?.trim();
   if (!text) return NextResponse.json({ error: "Não foi possível compreender a fala. Tente novamente ou use texto." }, { status: 422 });
-  const turn = await recordStudentTurn({ userId: user.id, sessionId, content: text, source: "VOZ" });
-  return NextResponse.json({ transcript: text, ...turn });
+  try {
+    const turn = await recordStudentTurn({ userId: user.id, sessionId, content: text, source: "VOZ" });
+    return NextResponse.json({ transcript: text, ...turn });
+  } catch (cause) {
+    return NextResponse.json({ error: cause instanceof Error ? cause.message : "Não foi possível responder à fala." }, { status: 503 });
+  }
 }

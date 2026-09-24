@@ -2,6 +2,7 @@ import "server-only";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { respondAsCharacter } from "./character";
 import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation, readDidacticState, recordInterruption } from "./didactic-state";
+import { openAIErrorMessage } from "./openai-error";
 import type { InternalCase } from "./session-case";
 
 type Speaker = "ALUNO" | "PERSONAGEM" | "NARRADOR" | "SISTEMA";
@@ -73,9 +74,16 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
   const { data: secret } = await admin.from("training_session_secrets").select("internal_case").eq("session_id", input.sessionId).maybeSingle();
   if (!secret) throw new Error("Ficha pedagógica indisponível.");
 
+  // A resposta precisa existir antes de registrar a fala. Uma falha da IA não pode deixar turnos órfãos.
+  let character;
+  try {
+    character = await respondAsCharacter(secret.internal_case as InternalCase, [...history, { speaker: "ALUNO", content }], didacticState);
+  } catch (cause) {
+    console.error("Falha ao gerar resposta do tentante", { status: (cause as { status?: number })?.status, code: (cause as { code?: string })?.code });
+    throw new Error(openAIErrorMessage(cause, "gerar a resposta do tentante"));
+  }
   await transitionToActive(session);
   await appendTranscript(input.sessionId, "ALUNO", content, input.source, "OUVIDO");
-  const character = await respondAsCharacter(secret.internal_case as InternalCase, [...history, { speaker: "ALUNO", content }], didacticState);
   const deliveryStatus: DeliveryStatus = input.source === "VOZ" ? "PENDENTE" : "OUVIDO";
   const characterTurn = await appendTranscript(input.sessionId, "PERSONAGEM", character.fala, "SISTEMA", deliveryStatus, { finish_after_delivery: character.aceita_saida_digna });
   const nextState = applyDidacticSignals(didacticState, {
