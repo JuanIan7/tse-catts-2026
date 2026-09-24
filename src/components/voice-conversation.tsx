@@ -9,8 +9,15 @@ type Phase = "idle" | "recording" | "sending" | "playing";
 type VoiceResult = { transcript: string; characterTurnId: string; characterText: string; pendingAudio: boolean };
 
 function recorderOptions() {
-  const preferred = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type));
+  const preferred = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"].find((type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type));
   return preferred ? { mimeType: preferred } : undefined;
+}
+
+function recordingFilename(type: string) {
+  if (type.includes("mp4")) return "fala.m4a";
+  if (type.includes("ogg")) return "fala.ogg";
+  if (type.includes("wav")) return "fala.wav";
+  return "fala.webm";
 }
 
 export function VoiceConversation({ sessionId }: { sessionId: string }) {
@@ -22,6 +29,7 @@ export function VoiceConversation({ sessionId }: { sessionId: string }) {
   const [status, setStatus] = useState("Voz desligada. Você também pode responder por texto.");
   const [error, setError] = useState("");
   const [replayTurn, setReplayTurn] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -33,6 +41,15 @@ export function VoiceConversation({ sessionId }: { sessionId: string }) {
   const lastVoiceAtRef = useRef(0);
   const openMicRef = useRef(false);
   const sendingRef = useRef(false);
+  const pressActiveRef = useRef(false);
+  const activityStartedAtRef = useRef(0);
+
+  useEffect(() => {
+    if (phase !== "recording" && phase !== "playing") { setElapsed(0); return; }
+    activityStartedAtRef.current = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - activityStartedAtRef.current) / 1000)), 250);
+    return () => window.clearInterval(timer);
+  }, [phase]);
 
   function clearRecordingDeadline() {
     if (recordingDeadlineRef.current !== null) window.clearTimeout(recordingDeadlineRef.current);
@@ -48,17 +65,15 @@ export function VoiceConversation({ sessionId }: { sessionId: string }) {
   }
 
   function stopOpenMic() {
-    openMicRef.current = false;
-    setOpenMic(false);
+    openMicRef.current = false; setOpenMic(false);
     if (monitorRef.current !== null) window.clearInterval(monitorRef.current);
     monitorRef.current = null;
-    audioContextRef.current?.close().catch(() => undefined);
-    audioContextRef.current = null;
+    audioContextRef.current?.close().catch(() => undefined); audioContextRef.current = null;
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
   }
 
   function stopAll() {
-    stopOpenMic(); clearRecordingDeadline(); cleanAudio();
+    pressActiveRef.current = false; stopOpenMic(); clearRecordingDeadline(); cleanAudio();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null; recorderRef.current = null; setPhase("idle");
   }
@@ -75,7 +90,7 @@ export function VoiceConversation({ sessionId }: { sessionId: string }) {
 
   async function getStream() {
     if (streamRef.current) return streamRef.current;
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este navegador não permite acesso ao microfone. Use texto para continuar.");
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") throw new Error("Este navegador não permite gravação pelo microfone. Use texto para continuar.");
     setStatus("Solicitando microfone…");
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     streamRef.current = stream;
@@ -96,16 +111,13 @@ export function VoiceConversation({ sessionId }: { sessionId: string }) {
   }
 
   async function playCharacter(turnId: string) {
-    setPhase("playing"); setStatus("Tentante falando…"); setError(""); setReplayTurn(null);
+    setPhase("playing"); setStatus("Tentante falando — escute antes de responder."); setError(""); setReplayTurn(null);
     try {
       const response = await fetch(`/api/sessions/${sessionId}/speech?turnId=${encodeURIComponent(turnId)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Não foi possível preparar a voz do tentante.");
       const url = URL.createObjectURL(await response.blob()); audioUrlRef.current = url;
       const audio = new Audio(url); audio.dataset.turnId = turnId; audioRef.current = audio;
-      audio.onended = async () => {
-        cleanAudio(); setPhase("idle"); setStatus("Sua vez de falar.");
-        await confirmDelivery(turnId, false).catch(() => setError("A resposta foi ouvida, mas não foi possível confirmar a entrega. Recarregue a página."));
-      };
+      audio.onended = async () => { cleanAudio(); setPhase("idle"); setStatus("Sua vez de falar."); await confirmDelivery(turnId, false).catch(() => setError("A resposta foi ouvida, mas não foi possível confirmar a entrega. Recarregue a página.")); };
       audio.onerror = () => { cleanAudio(); setPhase("idle"); setReplayTurn(turnId); setStatus("Toque para reproduzir a resposta do tentante."); };
       await audio.play();
     } catch (cause) {
@@ -115,10 +127,10 @@ export function VoiceConversation({ sessionId }: { sessionId: string }) {
   }
 
   async function uploadRecording(blob: Blob) {
-    if (blob.size < 750) { setPhase("idle"); setStatus("Não identificamos uma fala. Tente novamente ou use texto."); return; }
+    if (blob.size < 300) { setPhase("idle"); setStatus("Não identificamos uma fala. Tente novamente ou use texto."); return; }
     sendingRef.current = true; setPhase("sending"); setStatus("Transcrevendo sua fala…"); setError("");
     try {
-      const form = new FormData(); form.set("audio", blob, "fala.webm");
+      const form = new FormData(); form.set("audio", blob, recordingFilename(blob.type));
       const response = await fetch(`/api/sessions/${sessionId}/voice`, { method: "POST", body: form });
       const result = await response.json().catch(() => ({})) as Partial<VoiceResult> & { error?: string };
       if (!response.ok || !result.characterTurnId) throw new Error(result.error ?? "Não foi possível processar sua fala.");
@@ -133,29 +145,31 @@ export function VoiceConversation({ sessionId }: { sessionId: string }) {
     chunksRef.current = [];
     const recorder = new MediaRecorder(stream, recorderOptions()); recorderRef.current = recorder;
     recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
+    recorder.onerror = () => { clearRecordingDeadline(); setPhase("idle"); setError("O navegador interrompeu a gravação. Tente novamente ou use texto."); };
     recorder.onstop = () => {
       clearRecordingDeadline();
-      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || chunksRef.current[0]?.type || "audio/webm" });
       recorderRef.current = null; void uploadRecording(blob);
     };
-    recorder.start();
+    recorder.start(250);
     recordingDeadlineRef.current = window.setTimeout(() => {
-      if (recorder.state === "recording") { setStatus("Limite de 20 segundos atingido. Enviando sua fala…"); recorder.stop(); }
-    }, 20_000);
-    setPhase("recording"); setStatus(mode === "MICROFONE_ABERTO" ? "Microfone aberto — estou ouvindo…" : "Gravando sua fala…");
+      if (recorder.state === "recording") { setStatus("Limite de 90 segundos atingido. Enviando sua fala…"); recorder.stop(); }
+    }, 90_000);
+    setPhase("recording"); setStatus(mode === "MICROFONE_ABERTO" ? "Microfone aberto — estou ouvindo…" : "Você está falando — solte para enviar.");
   }
 
   async function beginPressToTalk() {
     if (!consented || phase === "sending") return;
     try {
       if (phase === "playing") await interruptCharacter();
-      const stream = await getStream(); startRecording(stream);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível acessar o microfone."); setStatus("Use texto para continuar.");
-    }
+      const stream = await getStream();
+      if (!pressActiveRef.current) { setStatus("Microfone autorizado. Pressione novamente e segure para falar."); return; }
+      startRecording(stream);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível acessar o microfone."); setStatus("Use texto para continuar."); }
   }
 
   function endPressToTalk() {
+    pressActiveRef.current = false;
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
   }
 
@@ -175,20 +189,26 @@ export function VoiceConversation({ sessionId }: { sessionId: string }) {
           if (audioRef.current && !audioRef.current.paused) void interruptCharacter();
           if (!sendingRef.current && recorderRef.current?.state !== "recording") startRecording(stream);
         }
-        if (recorderRef.current?.state === "recording" && now - lastVoiceAtRef.current > 1000) recorderRef.current.stop();
+        if (recorderRef.current?.state === "recording" && now - lastVoiceAtRef.current > 1200) recorderRef.current.stop();
       }, 150);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível ativar o microfone aberto."); }
   }
 
   const recording = phase === "recording";
+  const playing = phase === "playing";
   return <section className={styles.console} aria-live="polite">
     <div className={styles.titleRow}><div><h2>Conversa por voz</h2><p>Use fones sempre que possível. O áudio bruto não é salvo.</p></div></div>
     {!consented ? <div className={styles.consent}><p>Ao ativar a voz, você concorda com a transcrição temporária da sua fala e o envio à IA para esta simulação. As transcrições didáticas ficam protegidas por até 180 dias.</p><button type="button" onClick={() => void registerConsent()}>Li e concordo em ativar voz</button></div> : <>
       <div className={styles.modes}><button type="button" className={`${styles.mode} ${mode === "PRESSIONAR_PARA_FALAR" ? styles.modeActive : ""}`} onClick={() => { stopOpenMic(); setMode("PRESSIONAR_PARA_FALAR"); }}>Pressione para falar</button><button type="button" className={`${styles.mode} ${mode === "MICROFONE_ABERTO" ? styles.modeActive : ""}`} onClick={() => { stopOpenMic(); setMode("MICROFONE_ABERTO"); }}>Microfone aberto</button></div>
-      <div className={styles.stage}><div><div className={styles.stageIcon}>{phase === "playing" ? "◌" : recording ? "●" : "◉"}</div><strong>{phase === "playing" ? "Tentante falando" : recording ? "Sua fala está sendo gravada" : "Sua vez de falar"}</strong><span>{status}</span></div></div>
-      {mode === "PRESSIONAR_PARA_FALAR" ? <div className={styles.controls}><button className={styles.hold} type="button" onPointerDown={() => void beginPressToTalk()} onPointerUp={endPressToTalk} onPointerCancel={endPressToTalk} onKeyDown={(event) => { if (event.code === "Space" || event.code === "Enter") void beginPressToTalk(); }} onKeyUp={(event) => { if (event.code === "Space" || event.code === "Enter") endPressToTalk(); }} disabled={phase === "sending"}>● {recording ? "Solte para enviar" : "Pressione para falar"}</button></div> : <div className={styles.controls}><button className={`${styles.openControl} ${openMic ? styles.openControlActive : ""}`} type="button" onClick={() => void toggleOpenMic()} disabled={phase === "sending"}>◉ {openMic ? "Desativar microfone aberto" : "Ativar microfone aberto"}</button></div>}
+      <div className={`${styles.stage} ${recording ? styles.stageRecording : ""} ${playing ? styles.stagePlaying : ""}`}>
+        <div className={styles.activityIcon} aria-hidden="true"><span/><span/><span/><span/><span/></div>
+        <strong>{playing ? "Tentante falando" : recording ? "Você está falando" : phase === "sending" ? "Processando sua fala" : "Sua vez de falar"}</strong>
+        <span>{status}</span>
+        {(recording || playing) && <time>{elapsed}s</time>}
+      </div>
+      {mode === "PRESSIONAR_PARA_FALAR" ? <div className={styles.controls}><button className={styles.hold} type="button" draggable={false} onContextMenu={(event) => event.preventDefault()} onPointerDown={(event) => { event.preventDefault(); pressActiveRef.current = true; event.currentTarget.setPointerCapture(event.pointerId); void beginPressToTalk(); }} onPointerUp={(event) => { event.preventDefault(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); endPressToTalk(); }} onPointerCancel={endPressToTalk} onKeyDown={(event) => { if ((event.code === "Space" || event.code === "Enter") && !event.repeat) { pressActiveRef.current = true; void beginPressToTalk(); } }} onKeyUp={(event) => { if (event.code === "Space" || event.code === "Enter") endPressToTalk(); }} disabled={phase === "sending"}>● {recording ? "Solte para enviar" : "Segure para falar"}</button></div> : <div className={styles.controls}><button className={`${styles.openControl} ${openMic ? styles.openControlActive : ""}`} type="button" onClick={() => void toggleOpenMic()} disabled={phase === "sending"}>◉ {openMic ? "Desativar microfone aberto" : "Ativar microfone aberto"}</button></div>}
       {replayTurn && <button className={styles.replay} type="button" onClick={() => void playCharacter(replayTurn)}>Tocar resposta do tentante</button>}
-      <p className={styles.hint}>{mode === "MICROFONE_ABERTO" ? "Se você falar enquanto o tentante responde, a resposta é interrompida e a conversa registra a sobreposição. Fones reduzem interrupções acidentais." : "A resposta só é enviada quando você solta o botão. Cada fala tem até 20 segundos."}</p>
+      <p className={styles.hint}>{mode === "MICROFONE_ABERTO" ? "Se você falar enquanto o tentante responde, a resposta é interrompida e a sobreposição é registrada. Fones reduzem interrupções acidentais." : "Mantenha o botão pressionado durante toda a fala e solte para enviar. Limite máximo: 90 segundos."}</p>
     </>}
     {error && <p className={styles.error} role="alert">{error}</p>}
   </section>;

@@ -46,7 +46,7 @@ function buildCaseCapsule(internalCase: InternalCase) {
 }
 
 function compactHistory(transcript: TranscriptTurn[]) {
-  return transcript.slice(-8).map((turn) => ({ speaker: turn.speaker, content: turn.content.slice(0, 500) }));
+  return transcript.slice(-8).map((turn) => ({ speaker: turn.speaker, content: turn.content.slice(0, 2000) }));
 }
 
 export async function respondAsCharacter(internalCase: InternalCase, transcript: TranscriptTurn[], didacticState: DidacticState): Promise<CharacterResponse> {

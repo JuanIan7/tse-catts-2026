@@ -60,7 +60,7 @@ export async function finalizeTrainingSession(input: { userId: string; sessionId
 
 export async function recordStudentTurn(input: { userId: string; sessionId: string; content: string; source: "TEXTO" | "VOZ" }) {
   const content = input.content.trim();
-  if (!content || content.length > 1500) throw new Error("Envie uma fala entre 1 e 1500 caracteres.");
+  if (!content || content.length > 3000) throw new Error("Envie uma fala entre 1 e 3000 caracteres.");
   const session = await getOwnedSession(input.userId, input.sessionId);
   if (!activeStatuses.has(session.status)) throw new Error("Ocorrência indisponível.");
   const didacticState = readDidacticState(session.didactic_state);
@@ -82,7 +82,6 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
     rapport_delta: character.rapport_delta,
     categorias_reveladas: character.categorias_reveladas,
     evidencias: character.evidencias,
-    // Erros graves exigem revisão humana na beta; nunca são deduzidos apenas por inferência do modelo.
     erros_graves: [],
     acceptsExit: input.source === "TEXTO" && character.aceita_saida_digna,
   });
