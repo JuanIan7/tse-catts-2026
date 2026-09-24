@@ -46,7 +46,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
 
   function cleanAudio() {
     const audio = audioRef.current;
-    if (audio) { audio.pause(); audio.src = ""; }
+    if (audio) { audio.onended = null; audio.onerror = null; audio.pause(); }
     audioRef.current = null;
     if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     audioUrlRef.current = null;
