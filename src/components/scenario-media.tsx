@@ -5,13 +5,12 @@ import { useRouter } from "next/navigation";
 import type { PublicBriefing } from "@/lib/tse/session-case";
 import styles from "./scenario-media.module.css";
 
-export function ScenarioMedia({ sessionId, briefing, locationUrl, characterUrl, started, onStart }: {
+export function ScenarioMedia({ sessionId, briefing, locationUrl, characterUrl, onMediaReady }: {
   sessionId: string;
   briefing: PublicBriefing;
   locationUrl: string | null;
   characterUrl: string | null;
-  started: boolean;
-  onStart: () => void;
+  onMediaReady: () => void;
 }) {
   const router = useRouter();
   const requestedImages = useRef(false);
@@ -32,6 +31,8 @@ export function ScenarioMedia({ sessionId, briefing, locationUrl, characterUrl, 
       .catch((cause) => setImageError(cause instanceof Error ? cause.message : "Não foi possível gerar as imagens."))
       .finally(() => setGenerating(false));
   }, [characterUrl, locationUrl, router, sessionId]);
+
+  useEffect(() => { if (!generating) onMediaReady(); }, [generating, onMediaReady]);
 
   return <section className={styles.section}>
     <div className={styles.mediaGrid}>
@@ -57,8 +58,6 @@ export function ScenarioMedia({ sessionId, briefing, locationUrl, characterUrl, 
         <div><h3>Condições da cena</h3><ul>{briefing.condicoes_da_cena.map((item) => <li key={item}>{item}</li>)}</ul></div>
       </div>
       <p className="notice">{briefing.orientacao}</p>
-      {!started && <button className={styles.start} type="button" onClick={onStart}>Iniciar simulação com áudio</button>}
-      {started && <p className={styles.started} role="status">Áudio da simulação iniciado.</p>}
       {imageError && <p className={styles.error} role="alert">{imageError} A imagem ilustrativa permanece disponível.</p>}
     </div>
   </section>;

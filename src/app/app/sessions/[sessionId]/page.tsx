@@ -25,7 +25,7 @@ export default async function SessionPage({ params }: { params: Promise<{ sessio
     const { data: transcriptData } = await supabase.from("training_transcripts").select("id, speaker, content, delivery_status").eq("session_id", sessionId).order("sequence_number", { ascending: true });
     const allTurns = (transcriptData ?? []) as Turn[];
     const turns = allTurns.filter((turn) => turn.delivery_status === "OUVIDO" || turn.speaker === "SISTEMA");
-    const lastCharacterTurn = [...allTurns].reverse().find((turn) => turn.speaker === "PERSONAGEM" && turn.delivery_status !== "INTERROMPIDO");
+    const lastCharacterTurn = [...allTurns].reverse().find((turn) => turn.speaker === "PERSONAGEM" && turn.delivery_status === "PENDENTE");
     const { data: evaluationData } = await supabase.from("evaluations").select("result, final_score, partial, calculation").eq("session_id", sessionId).maybeSingle();
     const evaluation = evaluationData as Evaluation | null;
     const admin = createSupabaseAdminClient();

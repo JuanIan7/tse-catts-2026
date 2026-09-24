@@ -14,16 +14,15 @@ export function SessionExperience({ sessionId, briefing, locationUrl, characterU
   characterUrl: string | null;
   lastCharacterTurn: ReplayTurn | null;
 }) {
-  const [started, setStarted] = useState(false);
+  const [mediaReady, setMediaReady] = useState(false);
   return <>
     <ScenarioMedia
       sessionId={sessionId}
       briefing={briefing}
       locationUrl={locationUrl}
       characterUrl={characterUrl}
-      started={started}
-      onStart={() => setStarted(true)}
+      onMediaReady={() => setMediaReady(true)}
     />
-    <VoiceConversation sessionId={sessionId} lastCharacterTurn={lastCharacterTurn} started={started} />
+    <VoiceConversation sessionId={sessionId} lastCharacterTurn={lastCharacterTurn} mediaReady={mediaReady} />
   </>;
 }
