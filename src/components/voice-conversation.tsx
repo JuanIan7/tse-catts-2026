@@ -6,7 +6,7 @@ import styles from "./voice-conversation.module.css";
 type Mode = "PRESSIONAR_PARA_FALAR" | "MICROFONE_ABERTO";
 type Phase = "idle" | "recording" | "sending" | "playing" | "narrating" | "preparing";
 type VoiceResult = { transcript: string; characterTurnId: string; characterText: string; pendingAudio: boolean };
-type ReplayTurn = { id: string; pending: boolean };
+type ReplayTurn = { id: string; pending: boolean; content?: string };
 type PreparedAudio = { blob: Blob; turn?: ReplayTurn };
 
 function recorderOptions() {
@@ -103,6 +103,19 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
 
   useEffect(() => { void prepareInitialAudio(); }, [lastCharacterTurn?.id, sessionId]);
 
+  function speakWithBrowser(text: string, kind: "narration" | "character", onEnded?: () => Promise<void> | void) {
+    if (!("speechSynthesis" in window)) { setPhase("idle"); setError("A voz não pôde ser reproduzida neste navegador."); return; }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "pt-BR";
+    utterance.rate = kind === "narration" ? 0.95 : 1;
+    utterance.onend = () => { void onEnded?.(); };
+    utterance.onerror = () => { void onEnded?.(); };
+    setPhase(kind === "narration" ? "narrating" : "playing");
+    setStatus(kind === "narration" ? "Narrando a ocorrência…" : "Tentante falando…");
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }
+
   async function playPrepared(prepared: PreparedAudio, kind: "narration" | "character", onEnded?: () => Promise<void> | void) {
     cleanAudio();
     const url = URL.createObjectURL(prepared.blob);
@@ -113,7 +126,11 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
     setPhase(kind === "narration" ? "narrating" : "playing");
     setStatus(kind === "narration" ? "Narrando a ocorrência…" : "Tentante falando…");
     audio.onended = () => { cleanAudio(); void onEnded?.(); };
-    audio.onerror = () => { cleanAudio(); setPhase("idle"); if (prepared.turn) setReplayTurn(prepared.turn); setStatus("O áudio não terminou de tocar."); setError("Não foi possível concluir a reprodução. Use recuperar áudio."); };
+    audio.onerror = () => {
+      cleanAudio();
+      if (prepared.turn?.content) speakWithBrowser(prepared.turn.content, kind, onEnded);
+      else { setPhase("idle"); setError("A voz não pôde ser reproduzida neste navegador."); }
+    };
     await audio.play();
   }
 
@@ -125,7 +142,11 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
         if (turn.pending) await confirmDelivery(turn.id, false).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
       });
     } catch {
-      setPhase("idle"); setReplayTurn(turn); setError("O navegador bloqueou a reprodução. Toque em recuperar áudio.");
+      if (turn.content) speakWithBrowser(turn.content, "character", async () => {
+        setPhase("idle"); setStatus("Sua vez de falar.");
+        if (turn.pending) await confirmDelivery(turn.id, false).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
+      });
+      else { setPhase("idle"); setError("A voz não pôde ser reproduzida neste navegador."); }
     }
   }
 
@@ -168,7 +189,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
     try {
       const form = new FormData(); form.set("audio", blob, recordingFilename(blob.type));
       const result = await (await request(`/api/sessions/${sessionId}/voice`, { method: "POST", body: form })).json() as VoiceResult;
-      await playCharacter({ id: result.characterTurnId, pending: result.pendingAudio });
+      await playCharacter({ id: result.characterTurnId, pending: result.pendingAudio, content: result.characterText });
     } catch (cause) { setPhase("idle"); setStatus("Use texto para continuar sem perder a sessão."); setError(cause instanceof Error ? cause.message : "Não foi possível usar a voz."); }
     finally { sendingRef.current = false; }
   }

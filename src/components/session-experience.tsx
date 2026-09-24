@@ -5,7 +5,7 @@ import type { PublicBriefing } from "@/lib/tse/session-case";
 import { ScenarioMedia } from "./scenario-media";
 import { VoiceConversation } from "./voice-conversation";
 
-type ReplayTurn = { id: string; pending: boolean };
+type ReplayTurn = { id: string; pending: boolean; content?: string };
 
 export function SessionExperience({ sessionId, briefing, locationUrl, characterUrl, lastCharacterTurn }: {
   sessionId: string;
