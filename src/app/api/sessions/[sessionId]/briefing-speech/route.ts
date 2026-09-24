@@ -14,7 +14,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ sessionId:
   if (!session || session.user_id !== user.id) return NextResponse.json({ error: "Ocorrência indisponível." }, { status: 404 });
   if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: "Narração indisponível." }, { status: 503 });
   const briefing = normalizePublicBriefing(session.public_briefing, session.difficulty as Difficulty);
-  const narration = `${briefingNarration(briefing)} Aparência observável: ${briefing.aparencia_observavel}. Primeira leitura visual: ${briefing.observaveis_iniciais.join("; ")}.`;
+  const narration = briefingNarration(briefing);
   let response: Response;
   try {
     response = await fetch("https://api.openai.com/v1/audio/speech", {

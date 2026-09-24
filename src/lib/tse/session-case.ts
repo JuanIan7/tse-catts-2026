@@ -143,8 +143,6 @@ export function briefingNarration(briefing: PublicBriefing) {
     briefing.acionamento,
     briefing.contexto_observavel,
     `Informações recebidas: ${briefing.informacoes_recebidas.join(" ")}`,
-    `Condições observáveis da cena: ${briefing.condicoes_da_cena.join("; ")}.`,
-    briefing.orientacao,
   ].join(" ");
 }
 
