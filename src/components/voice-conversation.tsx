@@ -243,8 +243,9 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
       await playPrepared(prepared, "character", completed);
     } catch {
       playingTurnRef.current = null;
+      setReplayTurn(turn);
       setPhase("idle");
-      setError("A voz do tentante não pôde ser iniciada. Tente reproduzir novamente.");
+      setError("A voz do tentante não pôde ser iniciada. Toque em recuperar áudio para ouvir a resposta.");
     }
   }
 
