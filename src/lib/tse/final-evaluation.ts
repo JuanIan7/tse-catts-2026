@@ -21,7 +21,7 @@ function itemAdjustment(id: string, entry: ItemSubmission) {
   const state = typeof entry === "string" ? entry : entry.estado;
   const rule = rubric.itens.find((item) => item.id === id);
   if (!rule) return Number.NEGATIVE_INFINITY;
-  const states = rule.estados as Record<string, number>;
+  const states = rule.estados as unknown as Record<string, number>;
   return states[state] ?? Number.NEGATIVE_INFINITY;
 }
 
