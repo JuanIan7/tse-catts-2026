@@ -63,7 +63,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, di
     try {
       player.muted = true;
       player.src = "data:audio/wav;base64,UklGRlYAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTIAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA=";
-      void player.play().then(() => { player.pause(); player.muted = false; }).catch(() => { player.muted = false; });
+      void player.play().then(() => { player.muted = false; }).catch(() => { player.muted = false; });
     } catch { player.muted = false; }
     try { const unlock = new SpeechSynthesisUtterance(" "); unlock.volume = 0.01; window.speechSynthesis.speak(unlock); } catch { /* Safari fallback unavailable */ }
   }
