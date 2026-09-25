@@ -275,6 +275,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
     try {
       const form = new FormData(); form.set("audio", blob, recordingFilename(blob.type));
       const result = await (await request(`/api/sessions/${sessionId}/voice`, { method: "POST", body: form })).json() as VoiceResult;
+      if (result.completed) { window.location.reload(); return; }
       await playCharacter({ id: result.characterTurnId, pending: result.pendingAudio, content: result.characterText });
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Não foi possível usar a voz.";
@@ -369,7 +370,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
           lastVoiceAtRef.current = now;
           if (recorderRef.current?.state !== "recording") startRecording(stream);
         }
-        if (recorderRef.current?.state === "recording" && now - lastVoiceAtRef.current > 4000 && now - speechStartedAtRef.current > 900) recorderRef.current.stop();
+        if (recorderRef.current?.state === "recording" && now - lastVoiceAtRef.current > 6000 && now - speechStartedAtRef.current > 1200) recorderRef.current.stop();
       }, 150);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível ativar o microfone aberto."); }
   }

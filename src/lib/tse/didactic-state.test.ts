@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDidacticSignals, calculateDidacticEvaluation, createDidacticState, readDidacticState, toEvaluationSubmission } from "./didactic-state";
+import { applyDidacticSignals, calculateDidacticEvaluation, createDidacticState, readDidacticState, seriousOccurrenceCount, toEvaluationSubmission } from "./didactic-state";
 
 describe("estado didático no servidor", () => {
   it("não presume conduta física e só acumula evidência compatível com o barema", () => {
@@ -31,5 +31,13 @@ describe("estado didático no servidor", () => {
     expect(state.itens.fator_principal).toBeUndefined();
     expect(state.categorias_reveladas).toEqual({ risco: 3, protecao: 0, vinculo: 1 });
     expect(JSON.stringify(state)).not.toContain("ocultas");
+  });
+
+  it("conta ocorrências graves separadas até o limite", () => {
+    let state = createDidacticState();
+    for (let index = 0; index < 6; index += 1) {
+      state = applyDidacticSignals(state, { rapport_delta: 0, categorias_reveladas: [], evidencias: [], erros_graves: [{ erro_id: "mentir", evidencia: "evidência " + index }], acceptsExit: false });
+    }
+    expect(seriousOccurrenceCount(state)).toBe(6);
   });
 });

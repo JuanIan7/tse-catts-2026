@@ -96,5 +96,19 @@ th { color:#5d5e56; font-size:.74rem; letter-spacing:.08em; text-transform:upper
 .turn-aluno { background:#f7eaa8; margin-left:auto; border-bottom-right-radius:3px; }
 .turn-personagem { border-bottom-left-radius:3px; }
 
+.result-panel .result-score { margin:.8rem 0; padding:.9rem 1rem; border-radius:14px; background:var(--gold-soft); color:#8a6a08; font-size:clamp(2.4rem,8vw,4rem); font-weight:900; line-height:1; text-align:center; letter-spacing:-.06em; }
+.result-panel .result-score small { font-size:.42em; letter-spacing:0; }
+.evaluation-zero { color:#8d302c; background:#fbebea; border-left:4px solid var(--danger); padding:.8rem .9rem; }
+.evaluation-items summary { font-weight:800; cursor:pointer; margin:.9rem 0; }
+.evaluation-items ul { list-style:none; margin:0; padding:0; display:grid; gap:.55rem; }
+.evaluation-items li { border-radius:10px; padding:.75rem .85rem; border:1px solid var(--line); display:grid; gap:.28rem; }
+.evaluation-items li span { font-size:.83rem; font-weight:800; }
+.evaluation-items li p { margin:0; color:var(--muted); font-size:.83rem; line-height:1.35; }
+.evaluation-item-positive { background:#edf6ef; border-color:#b9d6c0 !important; }
+.evaluation-item-positive span { color:#285c3d; }
+.evaluation-item-warning { background:#fcf8e5; border-color:#e4cf7b !important; }
+.evaluation-item-warning span { color:#776018; }
+.evaluation-item-negative { background:#fbebea; border-color:#e7b8b4 !important; }
+.evaluation-item-negative span { color:#8d302c; }
 @media (max-width:760px) { .auth-page { padding:1rem; align-items:start; } .auth-layout { grid-template-columns:1fr; gap:1.75rem; } .auth-intro { padding:1rem .35rem; } .auth-points { max-width:28rem; } .dashboard-grid { grid-template-columns:1fr; } .difficulty-grid { grid-template-columns:1fr; } .difficulty-grid select { grid-column:auto; } .app-header-inner { min-height:4.1rem; } .app-main { padding-top:1rem; } th,td { white-space:nowrap; } }
 @media (prefers-reduced-motion:reduce) { *,*:before,*:after { scroll-behavior:auto!important; transition:none!important; } }

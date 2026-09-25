@@ -1,7 +1,7 @@
 import "server-only";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { respondAsCharacter } from "./character";
-import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation, readDidacticState, recordInterruption } from "./didactic-state";
+import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation, readDidacticState, recordInterruption, seriousOccurrenceCount } from "./didactic-state";
 import { openAIErrorMessage } from "./openai-error";
 import type { Difficulty, InternalCase } from "./session-case";
 import { isSessionExpired } from "./session-timer";
@@ -65,6 +65,20 @@ async function finalCalculation(session: SessionRecord, reason: string, partial:
   ]);
   if (!secret || !publicSession) return calculateDidacticEvaluation(readDidacticState(session.didactic_state));
   return evaluateCompletedTranscript({ state: readDidacticState(session.didactic_state), internalCase: secret.internal_case as InternalCase, briefing: normalizePublicBriefing(publicSession.public_briefing, session.difficulty), transcript: transcript ?? [], partial, reason });
+}
+
+async function finalizeSevereOccurrenceLimit(input: { userId: string; sessionId: string; occurrences: number }) {
+  const session = await getOwnedSession(input.userId, input.sessionId);
+  if (terminalStatuses.has(session.status)) return { completed: true };
+  if (session.status !== "AVALIACAO_PENDENTE") await transition(session.id, "AVALIACAO_PENDENTE");
+  const baseCalculation = await finalCalculation(session, "LIMITE DE OCORRÊNCIAS GRAVES ATINGIDO", true);
+  const calculation = { ...baseCalculation, nota_bruta: 0, nota_final: 0, encerramento_forcado: true, ocorrencias_graves: input.occurrences, motivo_encerramento: "LIMITE DE OCORRÊNCIAS GRAVES ATINGIDO" };
+  const { error } = await createSupabaseAdminClient().from("evaluations").upsert({
+    session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.3", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: 0,
+  }, { onConflict: "session_id" });
+  if (error) throw new Error("Não foi possível preparar a avaliação automática.");
+  await transition(session.id, "ENCERRADA_SEM_EXITO");
+  return { completed: true };
 }
 
 export async function finalizeTrainingSession(input: { userId: string; sessionId: string }) {
@@ -137,10 +151,15 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
     rapport_delta: character.rapport_delta,
     categorias_reveladas: character.categorias_reveladas,
     evidencias: character.evidencias,
-    erros_graves: [],
+    erros_graves: character.erros_graves,
     acceptsExit: input.source === "TEXTO" && character.aceita_saida_digna,
   });
   await persistDidacticState(session, nextState);
+  const occurrences = seriousOccurrenceCount(nextState);
+  if (occurrences > 5) {
+    await finalizeSevereOccurrenceLimit({ userId: input.userId, sessionId: input.sessionId, occurrences });
+    return { characterTurnId: characterTurn.id, characterText: character.fala, pendingAudio: false, completed: true };
+  }
   const completed = input.source === "TEXTO" && character.aceita_saida_digna ? (await finalizeTrainingSession({ userId: input.userId, sessionId: input.sessionId })).completed : false;
   return { characterTurnId: characterTurn.id, characterText: character.fala, pendingAudio: deliveryStatus === "PENDENTE", completed };
 }

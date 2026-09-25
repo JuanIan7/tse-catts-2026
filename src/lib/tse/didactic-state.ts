@@ -2,7 +2,7 @@ import rubric from "./barema.v0.3.json";
 import { calculateEvaluation, type EvaluationSubmission } from "./scoring";
 
 type StoredItem = { estado: string; evidencias: string[] };
-type StoredError = { aplicado: boolean; evidencias: string[] };
+type StoredError = { aplicado: boolean; evidencias: string[]; ocorrencias: number };
 export type DidacticSignal = { item_id: string; estado: string; evidencia: string };
 export type DidacticErrorSignal = { erro_id: string; evidencia: string };
 export type DidacticState = {
@@ -53,7 +53,7 @@ export function readDidacticState(raw: unknown): DidacticState {
     if (!errorById.has(id) || !entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const error = entry as Record<string, unknown>;
     const evidencias = Array.isArray(error.evidencias) ? error.evidencias.filter((e): e is string => typeof e === "string").map(cleanEvidence).filter(Boolean).slice(-3) : [];
-    erros_graves[id] = { aplicado: Boolean(error.aplicado), evidencias };
+    erros_graves[id] = { aplicado: Boolean(error.aplicado), evidencias, ocorrencias: typeof error.ocorrencias === "number" ? clamp(Math.floor(error.ocorrencias), 0, 100) : evidencias.length };
   }
   return {
     version: 1,
@@ -100,7 +100,7 @@ export function applyDidacticSignals(current: DidacticState, input: { rapport_de
     const evidence = cleanEvidence(signal.evidencia);
     if (!evidence) continue;
     const existing = state.erros_graves[signal.erro_id];
-    state.erros_graves[signal.erro_id] = { aplicado: true, evidencias: [...(existing?.evidencias ?? []), evidence].slice(-3) };
+    state.erros_graves[signal.erro_id] = { aplicado: true, evidencias: [...(existing?.evidencias ?? []), evidence].slice(-3), ocorrencias: clamp((existing?.ocorrencias ?? 0) + 1, 0, 100) };
   }
   state.saida_digna_aceita ||= input.acceptsExit;
   return state;
@@ -108,6 +108,7 @@ export function applyDidacticSignals(current: DidacticState, input: { rapport_de
 
 export function recordInterruption(current: DidacticState) { const state = readDidacticState(current); state.interrupcoes = clamp(state.interrupcoes + 1, 0, 20); return state; }
 export function acceptDignifiedExit(current: DidacticState) { const state = readDidacticState(current); state.saida_digna_aceita = true; return state; }
+export function seriousOccurrenceCount(current: DidacticState) { return Object.values(readDidacticState(current).erros_graves).reduce((total, error) => total + error.ocorrencias, 0); }
 
 export function toEvaluationSubmission(state: DidacticState): EvaluationSubmission {
   const safe = readDidacticState(state);
