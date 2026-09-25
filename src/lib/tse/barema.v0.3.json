@@ -5,7 +5,7 @@
     "fonte_primaria": "Ficha de Avaliação de Abordagem CATTS I/2026 - CBMERJ/CIEB",
     "rotulo_obrigatorio": "ESTIMATIVA DIDÁTICA - NÃO É NOTA OFICIAL DO CURSO",
     "quantidade_de_itens": 17,
-    "nota_base": 10.0,
+    "nota_base": 0.0,
     "nota_minima": 0.0,
     "nota_maxima": 10.0,
     "arredondamento": 1
@@ -235,7 +235,7 @@
     }
   ],
   "regras_de_calculo": [
-    "nota_bruta = 10.0 + soma dos ajustes dos 17 itens + soma das deduções dos erros graves aplicados",
+    "nota_bruta = 0.0 + soma dos pontos dos itens demonstrados + soma das deduções dos erros graves aplicados",
     "nota_final = limitar nota_bruta ao intervalo de 0.0 a 10.0",
     "arredondar a nota final para uma casa decimal",
     "cada item deve ter exatamente um estado permitido",
@@ -243,9 +243,9 @@
     "erros graves são deduções adicionais e podem coexistir com ajuste do item relacionado",
     "não observável produz ajuste zero; nunca presumir conduta física, postura, contato visual ou tom acústico",
     "em avaliação parcial, itens sem oportunidade razoável são não observáveis e a cobertura deve ser informada",
-    "itens aditivos não realizados geram zero, nunca crédito presumido",
+    "condutas não demonstradas geram zero; a nota não recebe crédito presumido",
     "a ficha não prevê dedução por não encontrar fatores de risco nem fator principal; nesses estados o ajuste é zero",
-    "não alterar a nota por impressão geral"
+    "os valores dos itens e dos erros graves devem somar exatamente à nota exibida"
   ],
   "cobertura": {
     "total_de_itens": 17,

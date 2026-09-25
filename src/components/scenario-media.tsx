@@ -31,14 +31,17 @@ export function ScenarioMedia({ sessionId, briefing, locationUrl, onMediaReady }
       .finally(() => setGenerating(false));
   }, [locationUrl, router, sessionId]);
 
-  useEffect(() => { if (!generating) onMediaReady(); }, [generating, onMediaReady]);
+  useEffect(() => { if (locationUrl) onMediaReady(); }, [locationUrl, onMediaReady]);
 
   return <section className={styles.section}>
     <div className={styles.mediaGrid}>
       <figure className={styles.figure}>
-        <img src={locationUrl ?? "/training/fallback-character.png"} alt="Representação visual fictícia do tentante no local da ocorrência" />
-        <figcaption>Tentante e contexto da ocorrência</figcaption>
-        {generating && !locationUrl && <span className={styles.generating}>Gerando cena própria…</span>}
+        {locationUrl ? <>
+          <img src={locationUrl} alt="Representação visual fictícia do tentante no local da ocorrência" />
+          <figcaption>Tentante e contexto da ocorrência</figcaption>
+        </> : <div className={styles.placeholder} role="status" aria-live="polite">
+          <span aria-hidden="true">⏳</span><strong>?</strong><p>{generating ? "Gerando a imagem da ocorrência…" : imageError ? "Não foi possível gerar a imagem." : "Aguardando imagem da ocorrência…"}</p>
+        </div>}
       </figure>
     </div>
     <div className={styles.briefing}>
@@ -52,7 +55,7 @@ export function ScenarioMedia({ sessionId, briefing, locationUrl, onMediaReady }
         <div><h3>Condições da cena</h3><ul>{briefing.condicoes_da_cena.map((item) => <li key={item}>{item}</li>)}</ul></div>
       </div>
       <p className="notice">{briefing.orientacao}</p>
-      {imageError && <p className={styles.error} role="alert">{imageError} A imagem ilustrativa permanece disponível.</p>}
+      {imageError && <p className={styles.error} role="alert">{imageError} Tente atualizar a página para gerar novamente.</p>}
     </div>
   </section>;
 }

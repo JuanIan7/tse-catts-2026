@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApprovedUser } from "@/lib/auth/authorization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { openAIResponseError } from "@/lib/tse/openai-error";
+import { characterVoice, characterVoiceInstructions, fallbackVoicePersona, type VoicePersona } from "@/lib/tse/voice-persona";
 
 export const runtime = "nodejs";
 
@@ -17,19 +18,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ sess
   if (!turn || turn.speaker !== "PERSONAGEM" || !["PENDENTE", "OUVIDO"].includes(turn.delivery_status)) return NextResponse.json({ error: "Resposta de voz indisponível." }, { status: 409 });
   if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: "Integração de voz indisponível." }, { status: 503 });
   const { data: secret } = await admin.from("training_session_secrets").select("internal_case").eq("session_id", sessionId).maybeSingle();
-  const profile = (secret?.internal_case as { perfil_tipo?: string } | null)?.perfil_tipo;
-  const delivery = profile === "AGRESSIVO"
-    ? "Fale em português brasileiro com raiva real, tom alto e impaciente, sem risada nem deboche."
-    : profile === "PSICOTICO"
-      ? "Fale em português brasileiro com medo, hesitação e ritmo fragmentado; nunca pareça subitamente calmo."
-      : "Fale em português brasileiro com voz embargada, abatida e pausas de choro contido.";
-  const instructions = `${delivery} Interprete apenas a fala do personagem, sem narrar ações nem acrescentar palavras.`;
+  const internalCase = secret?.internal_case as { perfil_tipo?: string; voz_personagem?: VoicePersona } | null;
+  const persona = internalCase?.voz_personagem ?? fallbackVoicePersona(internalCase?.perfil_tipo);
+  const instructions = characterVoiceInstructions(persona);
   let response: Response;
   try {
     response = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: "marin", input: turn.content, instructions, response_format: "mp3" }),
+      body: JSON.stringify({ model: "gpt-4o-mini-tts", voice: characterVoice(persona), input: turn.content, instructions, response_format: "mp3" }),
     });
   } catch {
     return NextResponse.json({ error: "Sem conexão com a voz do tentante. Tente novamente." }, { status: 503 });

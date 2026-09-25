@@ -8,6 +8,7 @@ describe("createSessionCase", () => {
     expect(internalCase.fatores_risco).toHaveLength(3);
     expect(internalCase.fatores_protecao).toHaveLength(3);
     expect(internalCase.ocultas.length).toBeGreaterThan(0);
+    expect(internalCase.voz_personagem.apresentacao).toMatch(/MASCULINA|FEMININA/);
     expect(publicBriefing.observaveis_iniciais.length).toBeGreaterThanOrEqual(2);
     expect(publicBriefing.acionamento.length).toBeGreaterThan(20);
     expect(publicBriefing.informacoes_recebidas.length).toBeGreaterThanOrEqual(2);

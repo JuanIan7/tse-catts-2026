@@ -8,6 +8,7 @@ type Phase = "idle" | "recording" | "sending" | "playing" | "narrating" | "prepa
 type VoiceResult = { transcript: string; characterTurnId: string; characterText: string; pendingAudio: boolean; completed?: boolean };
 type ReplayTurn = { id: string; pending: boolean; content?: string };
 type PreparedAudio = { blob: Blob; turn?: ReplayTurn; text?: string };
+type PreparedOpening = { narration: PreparedAudio; character: PreparedAudio };
 
 function recorderOptions() {
   const preferred = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"].find((type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type));
@@ -45,11 +46,12 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playerRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  const audioWatchRef = useRef<number | null>(null);
   const monitorRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const lastVoiceAtRef = useRef(0);
   const sendingRef = useRef(false);
-  const initialAudioRef = useRef<PreparedAudio | null>(null);
+  const initialAudioRef = useRef<PreparedOpening | null>(null);
   const initialStartedRef = useRef(false);
   const pressActiveRef = useRef(false);
   const playingTurnRef = useRef<ReplayTurn | null>(null);
@@ -71,8 +73,10 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
   }
 
   function cleanAudio() {
+    if (audioWatchRef.current !== null) window.clearInterval(audioWatchRef.current);
+    audioWatchRef.current = null;
     const audio = audioRef.current;
-    if (audio) { audio.onended = null; audio.onerror = null; audio.pause(); }
+    if (audio) { audio.onended = null; audio.onerror = null; audio.onpause = null; audio.onstalled = null; audio.pause(); }
     audioRef.current = null;
     if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     audioUrlRef.current = null;
@@ -156,36 +160,35 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
   }, [deadlineAt]);
 
   async function prepareInitialAudio() {
+    if (!mediaReady) {
+      initialAudioRef.current = null;
+      setInitialReady(false);
+      setPhase("preparing");
+      setStatus("Aguardando a imagem da ocorrência…");
+      return;
+    }
     if (!lastCharacterTurn) { setInitialReady(true); setPhase("idle"); setStatus("Sua vez de falar."); return; }
     try {
-      setError(""); setPhase("preparing"); setStatus("Preparando o áudio da ocorrência…");
-      const opening = await request("/api/sessions/" + sessionId + "/opening-speech?turnId=" + encodeURIComponent(lastCharacterTurn.id), { cache: "no-store" });
-      initialAudioRef.current = { blob: await opening.blob(), turn: lastCharacterTurn, text: narrationText + " " + (lastCharacterTurn.content ?? "") };
+      setError(""); setPhase("preparing"); setStatus("Preparando os áudios da ocorrência…");
+      const [narration, character] = await Promise.all([
+        request("/api/sessions/" + sessionId + "/briefing-speech", { cache: "no-store" }),
+        request("/api/sessions/" + sessionId + "/speech?turnId=" + encodeURIComponent(lastCharacterTurn.id), { cache: "no-store" }),
+      ]);
+      initialAudioRef.current = {
+        narration: { blob: await narration.blob(), text: narrationText },
+        character: { blob: await character.blob(), turn: lastCharacterTurn },
+      };
       setInitialReady(true); setPhase("idle"); setStatus("Tudo pronto. Inicie a simulação com áudio.");
     } catch (cause) {
-      setPhase("idle"); setError(cause instanceof Error ? cause.message : "Não foi possível preparar o áudio da ocorrência.");
+      setPhase("idle"); setError(cause instanceof Error ? cause.message : "Não foi possível preparar os áudios da ocorrência.");
       setStatus("Tente preparar o áudio novamente.");
     }
   }
 
-  useEffect(() => { void prepareInitialAudio(); }, [lastCharacterTurn?.id, sessionId]);
-
-  function speakWithBrowser(text: string, kind: "narration" | "character", onEnded?: () => Promise<void> | void) {
-    if (!("speechSynthesis" in window)) { setPhase("idle"); setError("A voz não pôde ser reproduzida neste navegador."); return; }
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "pt-BR";
-    utterance.rate = kind === "narration" ? 0.95 : 1;
-    utterance.onend = () => { void onEnded?.(); };
-    utterance.onerror = () => { void onEnded?.(); };
-    setPhase(kind === "narration" ? "narrating" : "playing");
-    setStatus(kind === "narration" ? "Narrando a ocorrência…" : "Tentante falando…");
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  }
+  useEffect(() => { void prepareInitialAudio(); }, [lastCharacterTurn?.id, mediaReady, narrationText, sessionId]);
 
   async function playPrepared(prepared: PreparedAudio, kind: "narration" | "character", onEnded?: () => Promise<void> | void) {
     cleanAudio();
-    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     const url = URL.createObjectURL(prepared.blob);
     audioUrlRef.current = url;
     const audio = playerRef.current ?? new Audio();
@@ -196,12 +199,33 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
     audioRef.current = audio;
     setPhase(kind === "narration" ? "narrating" : "playing");
     setStatus(kind === "narration" ? "Narrando a ocorrência…" : "Tentante falando…");
-    audio.onended = () => { cleanAudio(); void onEnded?.(); };
-    audio.onerror = () => {
+    let retried = false;
+    let stalledCheck: number | null = null;
+    let observedTime = -1;
+    const stopWatch = () => { if (stalledCheck !== null) window.clearInterval(stalledCheck); if (audioWatchRef.current === stalledCheck) audioWatchRef.current = null; stalledCheck = null; };
+    const fail = () => {
+      if (!retried && !audio.ended) {
+        retried = true;
+        audio.currentTime = 0;
+        void audio.play().catch(() => fail());
+        return;
+      }
+      stopWatch();
       cleanAudio();
-      if (prepared.turn?.content ?? prepared.text) speakWithBrowser(prepared.turn?.content ?? prepared.text!, kind, onEnded);
-      else { setPhase("idle"); setError("A voz não pôde ser reproduzida neste navegador."); }
+      setPhase("idle");
+      if (kind === "narration") { initialStartedRef.current = false; setInitialStarted(false); }
+      else if (prepared.turn) setReplayTurn(prepared.turn);
+      setError("A reprodução de áudio foi interrompida. Tente novamente.");
     };
+    audio.onended = () => { stopWatch(); cleanAudio(); void onEnded?.(); };
+    audio.onerror = fail;
+    audio.onstalled = () => window.setTimeout(() => { if (!audio.ended && audio.paused) fail(); }, 700);
+    audio.onpause = () => window.setTimeout(() => { if (!audio.ended && audio.paused) fail(); }, 250);
+    stalledCheck = window.setInterval(() => {
+      if (!audio.ended && !audio.paused && audio.currentTime <= observedTime + 0.01) fail();
+      observedTime = audio.currentTime;
+    }, 3500);
+    audioWatchRef.current = stalledCheck;
     await audio.play();
   }
 
@@ -218,13 +242,9 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
     try {
       await playPrepared(prepared, "character", completed);
     } catch {
-      if (turn.content) speakWithBrowser(turn.content, "character", async () => {
-        setPhase("idle"); setStatus("Sua vez de falar.");
-        if (turn.pending) {
-          await confirmDelivery(turn.id, false).then(() => { if (pendingCharacterTurn?.id === turn.id) { setPendingReplayDone(true); window.setTimeout(() => window.location.reload(), 250); } }).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
-        }
-      });
-      else { setPhase("idle"); setError("A voz não pôde ser reproduzida neste navegador."); }
+      playingTurnRef.current = null;
+      setPhase("idle");
+      setError("A voz do tentante não pôde ser iniciada. Tente reproduzir novamente.");
     }
   }
 
@@ -237,11 +257,8 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
     setInitialStarted(true);
     setError("");
     try {
-      // Uma única faixa é iniciada no gesto do usuário: descrição e abertura não dependem de autoplay encadeado no Safari.
-      await playPrepared(prepared, "narration", async () => {
-        if (prepared.turn?.pending) await confirmDelivery(prepared.turn.id, false).catch((cause) => setError(cause instanceof Error ? cause.message : "A abertura foi ouvida, mas não foi confirmada."));
-        setPhase("idle");
-        setStatus("Sua vez de falar.");
+      await playPrepared(prepared.narration, "narration", async () => {
+        if (prepared.character.turn) await playCharacter(prepared.character.turn, prepared.character.blob);
       });
     } catch {
       initialStartedRef.current = false;
@@ -370,7 +387,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
           lastVoiceAtRef.current = now;
           if (recorderRef.current?.state !== "recording") startRecording(stream);
         }
-        if (recorderRef.current?.state === "recording" && now - lastVoiceAtRef.current > 6000 && now - speechStartedAtRef.current > 1200) recorderRef.current.stop();
+        if (recorderRef.current?.state === "recording" && now - lastVoiceAtRef.current > 10_000 && now - speechStartedAtRef.current > 1200) recorderRef.current.stop();
       }, 150);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível ativar o microfone aberto."); }
   }

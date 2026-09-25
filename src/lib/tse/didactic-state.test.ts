@@ -19,7 +19,7 @@ describe("estado didático no servidor", () => {
     expect(submission.itens.fatores_protecao).toMatchObject({ estado: "encontrou_explorou" });
     expect(submission.itens.aproximacao_calma_silenciosa).toMatchObject({ estado: "nao_observavel" });
     expect(calculateDidacticEvaluation(state).cobertura.avaliados).toBe(13);
-    expect(calculateDidacticEvaluation(createDidacticState()).nota_final).toBeLessThan(10);
+    expect(calculateDidacticEvaluation(createDidacticState()).nota_final).toBe(0);
   });
 
   it("descarta estado adulterado e mantém a forma pública sem ficha interna", () => {

@@ -7,6 +7,7 @@ export function characterImagePrompt(internalCase: InternalCase, briefing: Publi
     "Primary request: dignified, realistic environmental portrait of one fictional adult person before a conversation with a trained responder.",
     `Scene/backdrop: ${briefing.contexto_observavel}`,
     `Externally observable appearance: ${briefing.aparencia_observavel}`,
+    `Person visual identity: ${internalCase.voz_personagem.descricao_visual}`,
     `Behavioral direction: ${internalCase.perfil_comportamental}`,
     "Style/medium: natural documentary photography, believable Brazilian setting, authentic clothing and skin texture, no glamorization.",
     "Composition/framing: waist-up or seated three-quarter view, person clearly visible, environment softly present, respectful distance, landscape 3:2.",

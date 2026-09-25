@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { scenarioVariants } from "./scenario-variants";
+import { voicePersonaSchema } from "./voice-persona";
 
 export const difficultySchema = z.enum(["FACIL", "MEDIA", "DIFICIL"]);
 export type Difficulty = z.infer<typeof difficultySchema>;
@@ -10,6 +11,7 @@ const internalCaseSchema = z.object({
   fatores_protecao: z.array(z.string().min(1)).min(2),
   perfil_comportamental: z.string().min(1),
   perfil_tipo: z.enum(["AGRESSIVO", "DEPRESSIVO", "PSICOTICO"]).optional(),
+  voz_personagem: voicePersonaSchema,
   contexto: z.string().min(1),
   vinculos: z.array(z.string().min(1)).min(1),
   observaveis: z.array(z.string().min(1)).min(1),
@@ -46,6 +48,7 @@ const templates: ScenarioTemplate[] = [
       fatores_protecao: ["vínculo afetivo com uma filha", "relação de confiança com uma irmã", "histórico de buscar ajuda em momentos difíceis"],
       perfil_comportamental: "depressivo e retraído; começa chorando, afasta o abordador e só se abre após várias falas de escuta",
       perfil_tipo: "DEPRESSIVO",
+      voz_personagem: { apresentacao: "FEMININA", faixa_etaria: "MADURA", estado: "EMBARGADA", descricao_visual: "Mulher adulta madura, expressão cansada e roupas discretas." },
       contexto: "mirante urbano arborizado ao entardecer, com circulação reduzida e equipe chegando para abordagem inicial",
       vinculos: ["filha em idade escolar", "irmã que mora na mesma cidade"],
       observaveis: ["pessoa adulta imóvel e silenciosa", "olhar voltado para baixo", "ombros tensos", "roupa compatível com o clima"],
@@ -75,6 +78,7 @@ const templates: ScenarioTemplate[] = [
       fatores_protecao: ["amizade duradoura", "participação anterior em atividade comunitária", "responsabilidade afetiva com um animal de estimação"],
       perfil_comportamental: "agressivo e agitado; começa hostil, xinga sem eufemismos e manda o abordador se afastar; nunca ri da situação",
       perfil_tipo: "AGRESSIVO",
+      voz_personagem: { apresentacao: "MASCULINA", faixa_etaria: "JOVEM_ADULTA", estado: "IRRITADA", descricao_visual: "Homem jovem adulto, aparência cansada e postura defensiva." },
       contexto: "passarela ampla de um terminal desativado no início da noite, com iluminação artificial e equipe se aproximando com cautela",
       vinculos: ["amigo de longa data", "grupo comunitário de bairro"],
       observaveis: ["pessoa adulta caminhando lentamente", "mãos fechadas", "respostas defensivas ao contato inicial", "atenção alternando entre a equipe e o ambiente"],
@@ -104,6 +108,7 @@ const templates: ScenarioTemplate[] = [
       fatores_protecao: ["irmã que mantém contato frequente", "histórico de aceitar apoio de uma equipe de saúde", "vínculo com atividade artística comunitária"],
       perfil_comportamental: "psicótico e desorganizado; fala de vozes e portais de forma não gráfica, teme aproximação e não recupera lucidez repentinamente",
       perfil_tipo: "PSICOTICO",
+      voz_personagem: { apresentacao: "FEMININA", faixa_etaria: "JOVEM_ADULTA", estado: "ASSUSTADA", descricao_visual: "Mulher jovem adulta, aparência cansada e expressão de medo." },
       contexto: "quarto de uma residência ao anoitecer, com equipe de abordagem posicionada à entrada e ambiente preservado",
       vinculos: ["irmã que acionou ajuda", "grupo de arte da comunidade"],
       observaveis: ["pessoa adulta inquieta", "olhar alternando entre a equipe e pontos vazios da sala", "fala fragmentada e desconexa", "mãos tensas"],

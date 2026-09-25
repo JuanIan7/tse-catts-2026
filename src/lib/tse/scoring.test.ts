@@ -8,19 +8,18 @@ describe("motor de pontuação TSE v0.3", () => {
     expect(best.cobertura.avaliados).toBe(17);
 
     const partial = calculateEvaluation(testSubmission("not_observable"));
-    expect(partial.nota_final).toBe(10);
+    expect(partial.nota_final).toBe(0);
     expect(partial.cobertura.avaliados).toBe(0);
 
     const poor = testSubmission("worst");
     poor.erros_graves = { atentar_contra_seguranca: { aplicado: true, evidencia: "conduta fictícia de teste" } };
     expect(calculateEvaluation(poor).nota_final).toBe(0);
 
-    const rounding = testSubmission("not_observable");
-    rounding.itens.aproximacao_calma_silenciosa = { estado: "nao_feito", evidencia: "teste" };
-    rounding.itens.silencio_inicial = { estado: "nao_feito", evidencia: "teste" };
+    const rounding = testSubmission("best");
     rounding.itens.ouviu_atentamente_postura = { estado: "parcial", evidencia: "teste" };
+    rounding.itens.fator_principal = { estado: "compreendeu_com_deslizes_leves", evidencia: "teste" };
     const result = calculateEvaluation(rounding);
-    expect(result.nota_bruta).toBe(8.25);
-    expect(result.nota_final).toBe(8.3);
+    expect(result.nota_bruta).toBe(9.25);
+    expect(result.nota_final).toBe(9.3);
   });
 });
