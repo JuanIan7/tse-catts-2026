@@ -31,7 +31,7 @@ export function ScenarioMedia({ sessionId, briefing, locationUrl, onMediaReady }
       .finally(() => setGenerating(false));
   }, [locationUrl, router, sessionId]);
 
-  useEffect(() => { if (locationUrl) onMediaReady(); }, [locationUrl, onMediaReady]);
+  useEffect(() => { if (locationUrl || imageError) onMediaReady(); }, [imageError, locationUrl, onMediaReady]);
 
   return <section className={styles.section}>
     <div className={styles.mediaGrid}>
