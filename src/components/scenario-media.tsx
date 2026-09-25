@@ -5,20 +5,19 @@ import { useRouter } from "next/navigation";
 import type { PublicBriefing } from "@/lib/tse/session-case";
 import styles from "./scenario-media.module.css";
 
-export function ScenarioMedia({ sessionId, briefing, locationUrl, characterUrl, onMediaReady }: {
+export function ScenarioMedia({ sessionId, briefing, locationUrl, onMediaReady }: {
   sessionId: string;
   briefing: PublicBriefing;
   locationUrl: string | null;
-  characterUrl: string | null;
   onMediaReady: () => void;
 }) {
   const router = useRouter();
   const requestedImages = useRef(false);
-  const [generating, setGenerating] = useState(!locationUrl || !characterUrl);
+  const [generating, setGenerating] = useState(!locationUrl);
   const [imageError, setImageError] = useState("");
 
   useEffect(() => {
-    if (requestedImages.current || (locationUrl && characterUrl)) return;
+    if (requestedImages.current || locationUrl) return;
     requestedImages.current = true;
     void fetch(`/api/sessions/${sessionId}/images`, { method: "POST" })
       .then(async (response) => {
@@ -30,21 +29,16 @@ export function ScenarioMedia({ sessionId, briefing, locationUrl, characterUrl, 
       })
       .catch((cause) => setImageError(cause instanceof Error ? cause.message : "Não foi possível gerar as imagens."))
       .finally(() => setGenerating(false));
-  }, [characterUrl, locationUrl, router, sessionId]);
+  }, [locationUrl, router, sessionId]);
 
   useEffect(() => { if (!generating) onMediaReady(); }, [generating, onMediaReady]);
 
   return <section className={styles.section}>
     <div className={styles.mediaGrid}>
       <figure className={styles.figure}>
-        <img src={locationUrl ?? "/training/fallback-location.png"} alt="Vista geral do local da ocorrência simulada" />
-        <figcaption>Local da ocorrência</figcaption>
+        <img src={locationUrl ?? "/training/fallback-character.png"} alt="Representação visual fictícia do tentante no local da ocorrência" />
+        <figcaption>Tentante e contexto da ocorrência</figcaption>
         {generating && !locationUrl && <span className={styles.generating}>Gerando cena própria…</span>}
-      </figure>
-      <figure className={`${styles.figure} ${styles.portrait}`}>
-        <img src={characterUrl ?? "/training/fallback-character.png"} alt="Representação visual fictícia do tentante" />
-        <figcaption>Referência visual do tentante</figcaption>
-        {generating && !characterUrl && <span className={styles.generating}>Gerando personagem…</span>}
       </figure>
     </div>
     <div className={styles.briefing}>

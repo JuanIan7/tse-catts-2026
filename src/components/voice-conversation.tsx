@@ -24,7 +24,7 @@ function formatRemaining(seconds: number) {
   return String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0");
 }
 
-export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, difficulty, startedAt, narrationText }: { sessionId: string; lastCharacterTurn: ReplayTurn | null; mediaReady: boolean; difficulty: "FACIL" | "MEDIA" | "DIFICIL"; startedAt: string | null; narrationText: string }) {
+export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharacterTurn, mediaReady, difficulty, startedAt, narrationText }: { sessionId: string; lastCharacterTurn: ReplayTurn | null; pendingCharacterTurn: ReplayTurn | null; mediaReady: boolean; difficulty: "FACIL" | "MEDIA" | "DIFICIL"; startedAt: string | null; narrationText: string }) {
   const [consented, setConsented] = useState(false);
   const [mode, setMode] = useState<Mode>("PRESSIONAR_PARA_FALAR");
   const [phase, setPhase] = useState<Phase>("preparing");
@@ -33,6 +33,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, di
   const [status, setStatus] = useState("Preparando o áudio da ocorrência…");
   const [error, setError] = useState("");
   const [replayTurn, setReplayTurn] = useState<ReplayTurn | null>(null);
+  const [pendingReplayDone, setPendingReplayDone] = useState(false);
   const [initialReady, setInitialReady] = useState(!lastCharacterTurn);
   const [initialStarted, setInitialStarted] = useState(false);
   const durationMs = difficulty === "FACIL" ? 600000 : difficulty === "MEDIA" ? 900000 : 1500000;
@@ -48,7 +49,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, di
   const audioContextRef = useRef<AudioContext | null>(null);
   const lastVoiceAtRef = useRef(0);
   const sendingRef = useRef(false);
-  const initialAudioRef = useRef<{ narration: PreparedAudio; character: PreparedAudio } | null>(null);
+  const initialAudioRef = useRef<PreparedAudio | null>(null);
   const initialStartedRef = useRef(false);
   const pressActiveRef = useRef(false);
   const playingTurnRef = useRef<ReplayTurn | null>(null);
@@ -56,6 +57,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, di
   const speechStartedAtRef = useRef(0);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { setPendingReplayDone(false); }, [pendingCharacterTurn?.id]);
 
   function unlockAudio() {
     const player = playerRef.current ?? new Audio();
@@ -157,11 +159,8 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, di
     if (!lastCharacterTurn) { setInitialReady(true); setPhase("idle"); setStatus("Sua vez de falar."); return; }
     try {
       setError(""); setPhase("preparing"); setStatus("Preparando o áudio da ocorrência…");
-      const [briefing, character] = await Promise.all([
-        request(`/api/sessions/${sessionId}/briefing-speech`, { cache: "no-store" }),
-        request(`/api/sessions/${sessionId}/speech?turnId=${encodeURIComponent(lastCharacterTurn.id)}`, { cache: "no-store" }),
-      ]);
-      initialAudioRef.current = { narration: { blob: await briefing.blob(), text: narrationText }, character: { blob: await character.blob(), turn: lastCharacterTurn } };
+      const opening = await request("/api/sessions/" + sessionId + "/opening-speech?turnId=" + encodeURIComponent(lastCharacterTurn.id), { cache: "no-store" });
+      initialAudioRef.current = { blob: await opening.blob(), turn: lastCharacterTurn, text: narrationText + " " + (lastCharacterTurn.content ?? "") };
       setInitialReady(true); setPhase("idle"); setStatus("Tudo pronto. Inicie a simulação com áudio.");
     } catch (cause) {
       setPhase("idle"); setError(cause instanceof Error ? cause.message : "Não foi possível preparar o áudio da ocorrência.");
@@ -211,7 +210,9 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, di
     const completed = async () => {
       playingTurnRef.current = null;
       setPhase("idle"); setStatus("Sua vez de falar."); setReplayTurn(null);
-      if (turn.pending) await confirmDelivery(turn.id, false).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
+      if (turn.pending) {
+        await confirmDelivery(turn.id, false).then(() => { if (pendingCharacterTurn?.id === turn.id) { setPendingReplayDone(true); window.setTimeout(() => window.location.reload(), 250); } }).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
+      }
     };
     const prepared = blob ? { blob, turn } : { blob: await (await request(`/api/sessions/${sessionId}/speech?turnId=${encodeURIComponent(turn.id)}`, { cache: "no-store" })).blob(), turn };
     try {
@@ -219,7 +220,9 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, di
     } catch {
       if (turn.content) speakWithBrowser(turn.content, "character", async () => {
         setPhase("idle"); setStatus("Sua vez de falar.");
-        if (turn.pending) await confirmDelivery(turn.id, false).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
+        if (turn.pending) {
+          await confirmDelivery(turn.id, false).then(() => { if (pendingCharacterTurn?.id === turn.id) { setPendingReplayDone(true); window.setTimeout(() => window.location.reload(), 250); } }).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
+        }
       });
       else { setPhase("idle"); setError("A voz não pôde ser reproduzida neste navegador."); }
     }
@@ -234,8 +237,12 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, di
     setInitialStarted(true);
     setError("");
     try {
-      // The first play runs inside the touch gesture; later audio is chained from onended.
-      await playPrepared(prepared.narration, "narration", async () => { await playCharacter(prepared.character.turn!, prepared.character.blob); });
+      // Uma única faixa é iniciada no gesto do usuário: descrição e abertura não dependem de autoplay encadeado no Safari.
+      await playPrepared(prepared, "narration", async () => {
+        if (prepared.turn?.pending) await confirmDelivery(prepared.turn.id, false).catch((cause) => setError(cause instanceof Error ? cause.message : "A abertura foi ouvida, mas não foi confirmada."));
+        setPhase("idle");
+        setStatus("Sua vez de falar.");
+      });
     } catch {
       initialStartedRef.current = false;
       setInitialStarted(false);
@@ -362,7 +369,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, di
           lastVoiceAtRef.current = now;
           if (recorderRef.current?.state !== "recording") startRecording(stream);
         }
-        if (recorderRef.current?.state === "recording" && now - lastVoiceAtRef.current > 2500 && now - speechStartedAtRef.current > 700) recorderRef.current.stop();
+        if (recorderRef.current?.state === "recording" && now - lastVoiceAtRef.current > 4000 && now - speechStartedAtRef.current > 900) recorderRef.current.stop();
       }, 150);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível ativar o microfone aberto."); }
   }
@@ -372,6 +379,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady, di
   return <section className={styles.console} aria-live="polite">
     <div className={styles.titleRow}><div><h2>Conversa por voz</h2><p>O áudio é transitório; a transcrição didática fica protegida na sessão.</p></div>{remainingSeconds !== null && <div className={styles.timer} aria-label="Tempo restante da ocorrência"><span>Tempo restante</span><strong>{formatRemaining(remainingSeconds)}</strong></div>}</div>
     {!mediaReady ? <p className={styles.hint}>Preparando as imagens da ocorrência…</p> : !initialReady ? <p className={styles.hint}>Preparando áudio…</p> : !initialStarted && lastCharacterTurn ? <button type="button" className={styles.replay} onClick={() => void startInitialSequence()}>Iniciar simulação com áudio</button> : <>
+      {pendingCharacterTurn && !pendingReplayDone && <button type="button" className={styles.replay} onClick={() => void playCharacter(pendingCharacterTurn)} disabled={phase === "playing" || phase === "sending"}>Ouvir resposta pendente</button>}
       {!consented ? <div className={styles.consent}><p>Ao ativar a voz, você concorda com a transcrição temporária da sua fala para esta simulação.</p><button type="button" onClick={() => void registerConsent()}>Li e concordo em ativar voz</button></div> : <>
         <div className={styles.modes}><button type="button" className={`${styles.mode} ${mode === "PRESSIONAR_PARA_FALAR" ? styles.modeActive : ""}`} onClick={() => { stopOpenMic(); setMode("PRESSIONAR_PARA_FALAR"); }}>Pressione para falar</button><button type="button" className={`${styles.mode} ${mode === "MICROFONE_ABERTO" ? styles.modeActive : ""}`} onClick={() => { setMode("MICROFONE_ABERTO"); }}>Microfone aberto</button></div>
         <div className={`${styles.stage} ${recording ? styles.stageRecording : ""} ${playing ? styles.stagePlaying : ""}`}><div className={styles.activityIcon} aria-hidden="true"><span/><span/><span/><span/><span/></div><strong>{phase === "narrating" ? "Narrando ocorrência" : phase === "playing" ? "Tentante falando" : recording ? "Você está falando" : phase === "sending" ? "Processando sua fala" : "Sua vez de falar"}</strong><span>{status}</span></div>

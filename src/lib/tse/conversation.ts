@@ -5,6 +5,8 @@ import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation,
 import { openAIErrorMessage } from "./openai-error";
 import type { Difficulty, InternalCase } from "./session-case";
 import { isSessionExpired } from "./session-timer";
+import { evaluateCompletedTranscript } from "./final-evaluation";
+import { normalizePublicBriefing } from "./briefing";
 
 type Speaker = "ALUNO" | "PERSONAGEM" | "NARRADOR" | "SISTEMA";
 type Source = "TEXTO" | "VOZ" | "SISTEMA";
@@ -54,13 +56,24 @@ export async function startTrainingSession(input: { userId: string; sessionId: s
   return { startedAt: activeSession.started_at, durationMs };
 }
 
+async function finalCalculation(session: SessionRecord, reason: string, partial: boolean) {
+  const admin = createSupabaseAdminClient();
+  const [{ data: secret }, { data: transcript }, { data: publicSession }] = await Promise.all([
+    admin.from("training_session_secrets").select("internal_case").eq("session_id", session.id).maybeSingle(),
+    admin.from("training_transcripts").select("speaker, content, delivery_status").eq("session_id", session.id).order("sequence_number", { ascending: true }),
+    admin.from("training_sessions").select("public_briefing").eq("id", session.id).maybeSingle(),
+  ]);
+  if (!secret || !publicSession) return calculateDidacticEvaluation(readDidacticState(session.didactic_state));
+  return evaluateCompletedTranscript({ state: readDidacticState(session.didactic_state), internalCase: secret.internal_case as InternalCase, briefing: normalizePublicBriefing(publicSession.public_briefing, session.difficulty), transcript: transcript ?? [], partial, reason });
+}
+
 export async function finalizeTrainingSession(input: { userId: string; sessionId: string }) {
   const session = await getOwnedSession(input.userId, input.sessionId);
   if (terminalStatuses.has(session.status)) return { completed: true };
   const state = readDidacticState(session.didactic_state);
   if (!state.saida_digna_aceita) return { completed: false };
   if (session.status !== "AVALIACAO_PENDENTE") await transition(session.id, "AVALIACAO_PENDENTE");
-  const calculation = calculateDidacticEvaluation(state);
+  const calculation = await finalCalculation(session, "SAÍDA DIGNA ACEITA", false);
   const { error: evaluationError } = await createSupabaseAdminClient().from("evaluations").upsert({
     session_id: session.id, user_id: input.userId, partial: calculation.parcial, result: "EXITO", rubric_version: "0.3", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
   }, { onConflict: "session_id" });
@@ -79,7 +92,7 @@ export async function finalizeTimedTrainingSession(input: { userId: string; sess
     session = await getOwnedSession(input.userId, input.sessionId);
   }
   if (session.status !== "AVALIACAO_PENDENTE") await transition(session.id, "AVALIACAO_PENDENTE");
-  const calculation = calculateDidacticEvaluation(readDidacticState(session.didactic_state));
+  const calculation = await finalCalculation(session, "TEMPO ESGOTADO", true);
   const { error: evaluationError } = await createSupabaseAdminClient().from("evaluations").upsert({
     session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.3", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
   }, { onConflict: "session_id" });
