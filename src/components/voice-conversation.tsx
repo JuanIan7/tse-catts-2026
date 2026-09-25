@@ -5,7 +5,7 @@ import styles from "./voice-conversation.module.css";
 
 type Mode = "PRESSIONAR_PARA_FALAR" | "MICROFONE_ABERTO";
 type Phase = "idle" | "recording" | "sending" | "playing" | "narrating" | "preparing";
-type VoiceResult = { transcript: string; characterTurnId: string; characterText: string; pendingAudio: boolean };
+type VoiceResult = { transcript: string; characterTurnId: string; characterText: string; pendingAudio: boolean; completed?: boolean };
 type ReplayTurn = { id: string; pending: boolean; content?: string };
 type PreparedAudio = { blob: Blob; turn?: ReplayTurn; text?: string };
 
