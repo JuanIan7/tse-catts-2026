@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDidacticSignals, calculateDidacticEvaluation, createDidacticState, readDidacticState, seriousOccurrenceCount, toEvaluationSubmission } from "./didactic-state";
+import { applyDidacticSignals, calculateDidacticEvaluation, createDidacticState, readDidacticState, registerInitialSilence, seriousOccurrenceCount, toEvaluationSubmission } from "./didactic-state";
 
 describe("estado didático no servidor", () => {
   it("não presume conduta física e só acumula evidência compatível com o barema", () => {
@@ -18,7 +18,8 @@ describe("estado didático no servidor", () => {
     expect(submission.itens.apresentacao_pessoal).toMatchObject({ estado: "feito" });
     expect(submission.itens.fatores_protecao).toMatchObject({ estado: "encontrou_explorou" });
     expect(submission.itens.aproximacao_calma_silenciosa).toMatchObject({ estado: "nao_observavel" });
-    expect(calculateDidacticEvaluation(state).cobertura.avaliados).toBe(2);
+    expect(calculateDidacticEvaluation(state).cobertura.avaliados).toBe(13);
+    expect(calculateDidacticEvaluation(createDidacticState()).nota_final).toBeLessThan(10);
   });
 
   it("descarta estado adulterado e mantém a forma pública sem ficha interna", () => {
@@ -39,5 +40,14 @@ describe("estado didático no servidor", () => {
       state = applyDidacticSignals(state, { rapport_delta: 0, categorias_reveladas: [], evidencias: [], erros_graves: [{ erro_id: "mentir", evidencia: "evidência " + index }], acceptsExit: false });
     }
     expect(seriousOccurrenceCount(state)).toBe(6);
+  });
+
+  it("registra o silêncio inicial uma única vez e antes da primeira fala", () => {
+    const first = registerInitialSilence(createDidacticState());
+    expect(first.recorded).toBe(true);
+    expect(toEvaluationSubmission(first.state).itens.silencio_inicial).toMatchObject({ estado: "feito" });
+    expect(registerInitialSilence(first.state).recorded).toBe(false);
+    const afterTurn = applyDidacticSignals(first.state, { rapport_delta: 0, categorias_reveladas: [], evidencias: [], erros_graves: [], acceptsExit: false });
+    expect(registerInitialSilence(afterTurn).recorded).toBe(false);
   });
 });

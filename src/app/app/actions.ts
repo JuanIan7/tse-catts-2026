@@ -4,15 +4,20 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireApprovedUser } from "@/lib/auth/authorization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { recordStudentTurn } from "@/lib/tse/conversation";
+import { finalizeManualTrainingSession, recordStudentTurn } from "@/lib/tse/conversation";
 import { createSessionCase, difficultySchema, openingCharacterLine } from "@/lib/tse/session-case";
 
 export async function createTrainingSession(formData: FormData) {
   const difficulty = difficultySchema.safeParse(String(formData.get("difficulty") ?? ""));
   if (!difficulty.success) throw new Error("Dificuldade inválida.");
   const { user } = await requireApprovedUser();
-  const { internalCase, publicBriefing } = createSessionCase(difficulty.data);
   const admin = createSupabaseAdminClient();
+  const { data: recentSessions } = await admin.from("training_sessions").select("public_briefing").eq("user_id", user.id).order("created_at", { ascending: false }).limit(3);
+  const recentTitles = (recentSessions ?? []).flatMap((row) => {
+    const briefing = row.public_briefing as { titulo?: unknown } | null;
+    return typeof briefing?.titulo === "string" ? [briefing.titulo] : [];
+  });
+  const { internalCase, publicBriefing } = createSessionCase(difficulty.data, Math.random, recentTitles);
   const { data: session, error: sessionError } = await admin.from("training_sessions").insert({
     user_id: user.id,
     difficulty: difficulty.data,
@@ -44,6 +49,14 @@ export async function createTrainingSession(formData: FormData) {
     throw new Error("Não foi possível iniciar a fala do tentante.");
   }
   redirect(`/app/sessions/${session.id}`);
+}
+
+export async function endTrainingSession(formData: FormData) {
+  const sessionId = String(formData.get("sessionId") ?? "");
+  const { user } = await requireApprovedUser();
+  await finalizeManualTrainingSession({ userId: user.id, sessionId });
+  revalidatePath("/app/sessions/" + sessionId);
+  redirect("/app/sessions/" + sessionId);
 }
 
 export async function sendTrainingTurn(_previous: { error: string; sent: boolean; nonce: number }, formData: FormData) {

@@ -192,6 +192,12 @@
   ],
   "erros_graves": [
     {
+      "id": "hostilidade_verbal",
+      "titulo": "Hostilidade verbal ao tentante",
+      "deducao": -2.0,
+      "aplicacao_maxima": 1
+    },
+    {
       "id": "atentar_contra_seguranca",
       "titulo": "Atentar contra a segurança",
       "deducao": -5.0,

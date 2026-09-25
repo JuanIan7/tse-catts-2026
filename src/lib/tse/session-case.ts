@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { scenarioVariants } from "./scenario-variants";
 
 export const difficultySchema = z.enum(["FACIL", "MEDIA", "DIFICIL"]);
 export type Difficulty = z.infer<typeof difficultySchema>;
@@ -127,6 +128,14 @@ const templates: ScenarioTemplate[] = [
   },
 ];
 
+const caseLibrary: ScenarioTemplate[] = [
+  ...templates,
+  ...scenarioVariants.map((variant) => ({
+    internalCase: internalCaseSchema.parse({ ...templates[variant.baseTemplate].internalCase, ...variant.internalCase }),
+    publicBriefing: { ...templates[variant.baseTemplate].publicBriefing, ...variant.publicBriefing },
+  })),
+];
+
 export function openingCharacterLine(internalCase: InternalCase) {
   switch (internalCase.perfil_tipo) {
     case "AGRESSIVO":
@@ -146,8 +155,11 @@ export function briefingNarration(briefing: PublicBriefing) {
   ].join(" ");
 }
 
-export function createSessionCase(difficulty: Difficulty, random = Math.random) {
-  const template = templates[Math.floor(random() * templates.length)];
+export function createSessionCase(difficulty: Difficulty, random = Math.random, recentTitles: string[] = []) {
+  const recent = new Set(recentTitles);
+  const eligible = caseLibrary.filter((template) => !recent.has(template.publicBriefing.titulo));
+  const choices = eligible.length ? eligible : caseLibrary;
+  const template = choices[Math.floor(random() * choices.length)];
   const internalCase = internalCaseSchema.parse(template.internalCase);
   const publicBriefing = publicBriefingSchema.parse({ ...template.publicBriefing, dificuldade: difficulty });
   return { internalCase, publicBriefing };

@@ -1,7 +1,8 @@
 import "server-only";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { respondAsCharacter } from "./character";
-import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation, readDidacticState, recordInterruption, seriousOccurrenceCount } from "./didactic-state";
+import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation, readDidacticState, recordInterruption, registerInitialSilence as registerInitialSilenceState, seriousOccurrenceCount } from "./didactic-state";
+import { detectSevereOccurrences, isPlainEndPhrase } from "./severe-occurrence";
 import { openAIErrorMessage } from "./openai-error";
 import type { Difficulty, InternalCase } from "./session-case";
 import { isSessionExpired } from "./session-timer";
@@ -96,6 +97,33 @@ export async function finalizeTrainingSession(input: { userId: string; sessionId
   return { completed: true };
 }
 
+export async function finalizeManualTrainingSession(input: { userId: string; sessionId: string }) {
+  let session = await getOwnedSession(input.userId, input.sessionId);
+  if (terminalStatuses.has(session.status)) return { completed: true };
+  await transitionToActive(session);
+  session = await getOwnedSession(input.userId, input.sessionId);
+  if (session.status !== "AVALIACAO_PENDENTE") await transition(session.id, "AVALIACAO_PENDENTE");
+  const calculation = await finalCalculation(session, "ENCERRAMENTO MANUAL", true);
+  const { error: evaluationError } = await createSupabaseAdminClient().from("evaluations").upsert({
+    session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.3", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
+  }, { onConflict: "session_id" });
+  if (evaluationError) throw new Error("Não foi possível preparar a avaliação automática.");
+  await transition(session.id, "ENCERRADA_SEM_EXITO");
+  return { completed: true };
+}
+
+export async function registerInitialSilence(input: { userId: string; sessionId: string }) {
+  let session = await getOwnedSession(input.userId, input.sessionId);
+  if (!activeStatuses.has(session.status)) throw new Error("O silêncio inicial só pode ser registrado em uma ocorrência ativa.");
+  await transitionToActive(session);
+  session = await getOwnedSession(input.userId, input.sessionId);
+  const registered = registerInitialSilenceState(readDidacticState(session.didactic_state));
+  if (!registered.recorded) throw new Error("O silêncio inicial só pode ser registrado uma vez, antes da primeira fala.");
+  await appendTranscript(session.id, "SISTEMA", "Silêncio inicial registrado antes da primeira fala do aluno.", "SISTEMA", "OUVIDO", { event: "SILENCIO_INICIAL" });
+  await persistDidacticState(session, registered.state);
+  return { recorded: true };
+}
+
 export async function finalizeTimedTrainingSession(input: { userId: string; sessionId: string }) {
   let session = await getOwnedSession(input.userId, input.sessionId);
   if (terminalStatuses.has(session.status)) return { completed: true };
@@ -146,13 +174,16 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
   await transitionToActive(session);
   await appendTranscript(input.sessionId, "ALUNO", content, input.source, "OUVIDO");
   const deliveryStatus: DeliveryStatus = input.source === "VOZ" ? "PENDENTE" : "OUVIDO";
-  const characterTurn = await appendTranscript(input.sessionId, "PERSONAGEM", character.fala, "SISTEMA", deliveryStatus, { finish_after_delivery: character.aceita_saida_digna });
+  const acceptsExit = character.aceita_saida_digna && !isPlainEndPhrase(content);
+  const deterministicErrors = detectSevereOccurrences(content);
+  const errorSignals = [...deterministicErrors, ...character.erros_graves].filter((signal, index, all) => all.findIndex((candidate) => candidate.erro_id === signal.erro_id) === index);
+  const characterTurn = await appendTranscript(input.sessionId, "PERSONAGEM", character.fala, "SISTEMA", deliveryStatus, { finish_after_delivery: acceptsExit });
   const nextState = applyDidacticSignals(didacticState, {
     rapport_delta: character.rapport_delta,
     categorias_reveladas: character.categorias_reveladas,
     evidencias: character.evidencias,
-    erros_graves: character.erros_graves,
-    acceptsExit: input.source === "TEXTO" && character.aceita_saida_digna,
+    erros_graves: errorSignals,
+    acceptsExit: input.source === "TEXTO" && acceptsExit,
   });
   await persistDidacticState(session, nextState);
   const occurrences = seriousOccurrenceCount(nextState);
@@ -160,7 +191,7 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
     await finalizeSevereOccurrenceLimit({ userId: input.userId, sessionId: input.sessionId, occurrences });
     return { characterTurnId: characterTurn.id, characterText: character.fala, pendingAudio: false, completed: true };
   }
-  const completed = input.source === "TEXTO" && character.aceita_saida_digna ? (await finalizeTrainingSession({ userId: input.userId, sessionId: input.sessionId })).completed : false;
+  const completed = input.source === "TEXTO" && acceptsExit ? (await finalizeTrainingSession({ userId: input.userId, sessionId: input.sessionId })).completed : false;
   return { characterTurnId: characterTurn.id, characterText: character.fala, pendingAudio: deliveryStatus === "PENDENTE", completed };
 }
 

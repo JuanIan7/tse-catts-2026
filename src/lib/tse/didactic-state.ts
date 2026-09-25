@@ -18,11 +18,11 @@ export type DidacticState = {
 };
 
 const itemById = new Map(rubric.itens.map((item) => [item.id, item]));
-const errorById = new Map(rubric.erros_graves.map((error) => [error.id, error]));
-// Itens de presença corporal ou de qualidade acústica permanecem não observáveis por texto/transcrição.
 const dialogueObservableItems = new Set([
-  "apresentacao_pessoal", "espaco_para_desabafo", "perguntas_simples_complexas", "parafrase_resumida", "memoria_linkada", "maieutica_ou_teia", "desistencia_ou_saida_digna", "dominou_dialogo", "conduziu_solucao", "fatores_protecao", "fatores_risco", "fator_principal",
+  "silencio_inicial", "apresentacao_pessoal", "espaco_para_desabafo", "perguntas_simples_complexas", "parafrase_resumida", "memoria_linkada", "maieutica_ou_teia", "desistencia_ou_saida_digna", "dominou_dialogo", "conduziu_solucao", "fatores_protecao", "fatores_risco", "fator_principal",
 ]);
+
+const errorById = new Map(rubric.erros_graves.map((error) => [error.id, error]));
 
 function clamp(value: number, minimum: number, maximum: number) { return Math.max(minimum, Math.min(maximum, value)); }
 function cleanEvidence(value: string) { return value.trim().replace(/\s+/g, " ").slice(0, 500); }
@@ -107,6 +107,13 @@ export function applyDidacticSignals(current: DidacticState, input: { rapport_de
 }
 
 export function recordInterruption(current: DidacticState) { const state = readDidacticState(current); state.interrupcoes = clamp(state.interrupcoes + 1, 0, 20); return state; }
+
+export function registerInitialSilence(current: DidacticState) {
+  const state = readDidacticState(current);
+  if (state.turnos > 0 || state.itens.silencio_inicial) return { state, recorded: false };
+  state.itens.silencio_inicial = { estado: "feito", evidencias: ["Silêncio inicial registrado pelo aluno antes da primeira fala."] };
+  return { state, recorded: true };
+}
 export function acceptDignifiedExit(current: DidacticState) { const state = readDidacticState(current); state.saida_digna_aceita = true; return state; }
 export function seriousOccurrenceCount(current: DidacticState) { return Object.values(readDidacticState(current).erros_graves).reduce((total, error) => total + error.ocorrencias, 0); }
 
@@ -116,7 +123,9 @@ export function toEvaluationSubmission(state: DidacticState): EvaluationSubmissi
     parcial: !safe.saida_digna_aceita,
     itens: Object.fromEntries(rubric.itens.map((item) => {
       const entry = safe.itens[item.id];
-      return [item.id, { estado: entry?.estado ?? "nao_observavel", evidencia: entry?.evidencias.join(" | ") || "Não observável nesta simulação de diálogo." }];
+      const defaultState = item.id === "fatores_protecao" || item.id === "fatores_risco" || item.id === "fator_principal" ? "nao_encontrou" : dialogueObservableItems.has(item.id) ? "nao_feito" : "nao_observavel";
+      const defaultEvidence = defaultState !== "nao_observavel" ? "Nenhuma evidência desta conduta foi registrada na conversa." : "Não observável nesta simulação de diálogo.";
+      return [item.id, { estado: entry?.estado ?? defaultState, evidencia: entry?.evidencias.join(" | ") || defaultEvidence }];
     })),
     erros_graves: Object.fromEntries(rubric.erros_graves.map((error) => {
       const entry = safe.erros_graves[error.id];
