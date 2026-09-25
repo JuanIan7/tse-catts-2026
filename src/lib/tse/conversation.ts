@@ -3,13 +3,14 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { respondAsCharacter } from "./character";
 import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation, readDidacticState, recordInterruption } from "./didactic-state";
 import { openAIErrorMessage } from "./openai-error";
-import type { InternalCase } from "./session-case";
+import type { Difficulty, InternalCase } from "./session-case";
+import { isSessionExpired } from "./session-timer";
 
 type Speaker = "ALUNO" | "PERSONAGEM" | "NARRADOR" | "SISTEMA";
 type Source = "TEXTO" | "VOZ" | "SISTEMA";
 type DeliveryStatus = "PENDENTE" | "OUVIDO" | "INTERROMPIDO";
 type TranscriptTurn = { speaker: Speaker; content: string };
-type SessionRecord = { id: string; user_id: string; status: string; didactic_state: unknown; didactic_state_revision: number };
+type SessionRecord = { id: string; user_id: string; status: string; difficulty: Difficulty; started_at: string | null; didactic_state: unknown; didactic_state_revision: number };
 type CharacterTurn = { id: string; sequence_number: number };
 const activeStatuses = new Set(["CRIADA", "EM_ANDAMENTO", "RECONEXAO"]);
 const terminalStatuses = new Set(["ENCERRADA_COM_EXITO", "ENCERRADA_SEM_EXITO", "CANCELADA"]);
@@ -38,10 +39,19 @@ async function persistDidacticState(session: SessionRecord, nextState: unknown) 
 }
 
 async function getOwnedSession(userId: string, sessionId: string) {
-  const { data } = await createSupabaseAdminClient().from("training_sessions").select("id, user_id, status, didactic_state, didactic_state_revision").eq("id", sessionId).maybeSingle();
+  const { data } = await createSupabaseAdminClient().from("training_sessions").select("id, user_id, status, difficulty, started_at, didactic_state, didactic_state_revision").eq("id", sessionId).maybeSingle();
   const session = data as SessionRecord | null;
   if (!session || session.user_id !== userId) throw new Error("Ocorrência indisponível.");
   return session;
+}
+
+export async function startTrainingSession(input: { userId: string; sessionId: string }) {
+  const session = await getOwnedSession(input.userId, input.sessionId);
+  if (terminalStatuses.has(session.status)) throw new Error("Esta ocorrência já foi encerrada.");
+  await transitionToActive(session);
+  const activeSession = await getOwnedSession(input.userId, input.sessionId);
+  const durationMs = activeSession.difficulty === "FACIL" ? 600000 : activeSession.difficulty === "MEDIA" ? 900000 : 1500000;
+  return { startedAt: activeSession.started_at, durationMs };
 }
 
 export async function finalizeTrainingSession(input: { userId: string; sessionId: string }) {
@@ -59,13 +69,37 @@ export async function finalizeTrainingSession(input: { userId: string; sessionId
   return { completed: true };
 }
 
+export async function finalizeTimedTrainingSession(input: { userId: string; sessionId: string }) {
+  let session = await getOwnedSession(input.userId, input.sessionId);
+  if (terminalStatuses.has(session.status)) return { completed: true };
+  if (!session.started_at) throw new Error("A ocorrência ainda não foi iniciada.");
+  if (!isSessionExpired(session.difficulty, session.started_at)) return { completed: false };
+  if (session.status === "CRIADA" || session.status === "RECONEXAO") {
+    await transitionToActive(session);
+    session = await getOwnedSession(input.userId, input.sessionId);
+  }
+  if (session.status !== "AVALIACAO_PENDENTE") await transition(session.id, "AVALIACAO_PENDENTE");
+  const calculation = calculateDidacticEvaluation(readDidacticState(session.didactic_state));
+  const { error: evaluationError } = await createSupabaseAdminClient().from("evaluations").upsert({
+    session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.3", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
+  }, { onConflict: "session_id" });
+  if (evaluationError) throw new Error("Não foi possível preparar a avaliação automática.");
+  await transition(session.id, "ENCERRADA_SEM_EXITO");
+  return { completed: true };
+}
+
 export async function recordStudentTurn(input: { userId: string; sessionId: string; content: string; source: "TEXTO" | "VOZ" }) {
   const content = input.content.trim();
   if (!content || content.length > 3000) throw new Error("Envie uma fala entre 1 e 3000 caracteres.");
-  const session = await getOwnedSession(input.userId, input.sessionId);
+  let session = await getOwnedSession(input.userId, input.sessionId);
   if (!activeStatuses.has(session.status)) throw new Error("Ocorrência indisponível.");
+  await transitionToActive(session);
+  if (!session.started_at) session = await getOwnedSession(input.userId, input.sessionId);
+  if (isSessionExpired(session.difficulty, session.started_at)) {
+    await finalizeTimedTrainingSession(input);
+    throw new Error("O tempo da ocorrência terminou. A avaliação foi gerada automaticamente.");
+  }
   const didacticState = readDidacticState(session.didactic_state);
-  if (didacticState.turnos >= 40) throw new Error("Esta simulação atingiu o limite de 40 turnos. Inicie uma nova ocorrência para continuar treinando.");
   const admin = createSupabaseAdminClient();
   const { data: rawHistory } = await admin.from("training_transcripts").select("speaker, content, created_at").eq("session_id", input.sessionId).eq("delivery_status", "OUVIDO").order("sequence_number", { ascending: false }).limit(8);
   const newestStudentTurn = (rawHistory ?? []).find((turn) => turn.speaker === "ALUNO");

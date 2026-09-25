@@ -49,13 +49,19 @@ export async function createTrainingSession(formData: FormData) {
 export async function sendTrainingTurn(_previous: { error: string; sent: boolean; nonce: number }, formData: FormData) {
   const sessionId = String(formData.get("sessionId") ?? "");
   const content = String(formData.get("content") ?? "");
+  let shouldRefresh = false;
   try {
     const { user } = await requireApprovedUser();
     await recordStudentTurn({ userId: user.id, sessionId, content, source: "TEXTO" });
-    revalidatePath(`/app/sessions/${sessionId}`);
-    return { error: "", sent: true, nonce: Date.now() };
+    shouldRefresh = true;
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "Não foi possível enviar a fala. Tente novamente.";
-    return { error: message, sent: false, nonce: Date.now() };
+    if (!message.includes("tempo da ocorrência terminou")) return { error: message, sent: false, nonce: Date.now() };
+    shouldRefresh = true;
   }
+  if (shouldRefresh) {
+    revalidatePath("/app/sessions/" + sessionId);
+    redirect("/app/sessions/" + sessionId);
+  }
+  return { error: "", sent: false, nonce: Date.now() };
 }

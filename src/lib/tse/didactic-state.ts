@@ -58,7 +58,7 @@ export function readDidacticState(raw: unknown): DidacticState {
   return {
     version: 1,
     revision: typeof value.revision === "number" && Number.isInteger(value.revision) && value.revision >= 0 ? value.revision : 0,
-    turnos: typeof value.turnos === "number" ? clamp(Math.floor(value.turnos), 0, 40) : 0,
+    turnos: typeof value.turnos === "number" ? clamp(Math.floor(value.turnos), 0, 10000) : 0,
     rapport: typeof value.rapport === "number" ? clamp(Math.round(value.rapport), -3, 5) : 0,
     categorias_reveladas: {
       risco: typeof categories?.risco === "number" ? clamp(Math.floor(categories.risco), 0, 3) : 0,
@@ -81,7 +81,7 @@ function chooseItemState(current: string | undefined, next: string) {
 
 export function applyDidacticSignals(current: DidacticState, input: { rapport_delta: number; categorias_reveladas: string[]; evidencias: DidacticSignal[]; erros_graves: DidacticErrorSignal[]; acceptsExit: boolean }) {
   const state = readDidacticState(current);
-  state.turnos = clamp(state.turnos + 1, 0, 40);
+  state.turnos = clamp(state.turnos + 1, 0, 10000);
   state.rapport = clamp(state.rapport + clamp(Math.round(input.rapport_delta), -1, 1), -3, 5);
   for (const category of input.categorias_reveladas) {
     if (category === "RISCO") state.categorias_reveladas.risco = clamp(state.categorias_reveladas.risco + 1, 0, 3);

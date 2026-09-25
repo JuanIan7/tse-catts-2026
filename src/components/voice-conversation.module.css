@@ -2,6 +2,9 @@
 .titleRow { display:flex; justify-content:space-between; gap:1rem; align-items:start; }
 .titleRow h2 { margin:0; font-size:1.1rem; }
 .titleRow p { margin:.25rem 0 0; color:#686960; font-size:.86rem; line-height:1.4; }
+.timer { text-align:right; white-space:nowrap; color:#4a4d44; }
+.timer span { display:block; font-size:.69rem; text-transform:uppercase; letter-spacing:.06em; color:#686960; }
+.timer strong { display:block; margin-top:.16rem; font-variant-numeric:tabular-nums; font-size:1.1rem; }
 .consent { background:#f7f1d8; border-left:4px solid #d4ad24; padding:.9rem; color:#514920; line-height:1.45; font-size:.88rem; }
 .consent p { margin:0 0 .8rem; }
 .modes { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
