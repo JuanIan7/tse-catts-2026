@@ -25,7 +25,7 @@ function itemAdjustment(id: string, entry: ItemSubmission) {
   return states[state] ?? Number.NEGATIVE_INFINITY;
 }
 
-function mergeFinalItems(baseline: EvaluationSubmission["itens"], candidate: unknown) {
+function mergeFinalItems(baseline: EvaluationSubmission["itens"], candidate: unknown): EvaluationSubmission["itens"] {
   const proposed = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate as Record<string, unknown> : {};
   return Object.fromEntries(rubric.itens.map((item) => {
     const recorded = baseline[item.id];
