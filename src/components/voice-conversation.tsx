@@ -42,6 +42,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
   const initialAudioRef = useRef<{ narration: PreparedAudio; character: PreparedAudio } | null>(null);
   const initialStartedRef = useRef(false);
   const pressActiveRef = useRef(false);
+  const playingTurnRef = useRef<ReplayTurn | null>(null);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
@@ -134,13 +135,21 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
     await audio.play();
   }
 
+  function useNativeCharacterVoice() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent);
+  }
+
   async function playCharacter(turn: ReplayTurn, blob?: Blob) {
+    playingTurnRef.current = turn;
+    const completed = async () => {
+      playingTurnRef.current = null;
+      setPhase("idle"); setStatus("Sua vez de falar."); setReplayTurn(null);
+      if (turn.pending) await confirmDelivery(turn.id, false).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
+    };
+    if (turn.content && useNativeCharacterVoice()) { speakWithBrowser(turn.content, "character", completed); return; }
     const prepared = blob ? { blob, turn } : { blob: await (await request(`/api/sessions/${sessionId}/speech?turnId=${encodeURIComponent(turn.id)}`, { cache: "no-store" })).blob(), turn };
     try {
-      await playPrepared(prepared, "character", async () => {
-        setPhase("idle"); setStatus("Sua vez de falar."); setReplayTurn(null);
-        if (turn.pending) await confirmDelivery(turn.id, false).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
-      });
+      await playPrepared(prepared, "character", completed);
     } catch {
       if (turn.content) speakWithBrowser(turn.content, "character", async () => {
         setPhase("idle"); setStatus("Sua vez de falar.");
@@ -213,9 +222,12 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
 
   async function interruptCharacter() {
     const audio = audioRef.current;
-    const turnId = audio?.dataset.turnId;
-    const pending = audio?.dataset.pending === "true";
+    const activeTurn = playingTurnRef.current;
+    const turnId = audio?.dataset.turnId ?? activeTurn?.id;
+    const pending = audio ? audio.dataset.pending === "true" : activeTurn?.pending === true;
+    playingTurnRef.current = null;
     cleanAudio();
+    window.speechSynthesis?.cancel();
     setPhase("idle");
     setStatus("Interrupção registrada. Estou ouvindo sua fala.");
     if (turnId && pending) void confirmDelivery(turnId, true).catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível registrar a interrupção."));
@@ -250,12 +262,27 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
       context.createMediaStreamSource(stream).connect(analyser);
       const values = new Uint8Array(analyser.fftSize);
       audioContextRef.current = context; lastVoiceAtRef.current = Date.now(); setOpenMic(true); setStatus("Microfone aberto — aguardando sua fala.");
+      let interruptStreak = 0;
       monitorRef.current = window.setInterval(() => {
-        // Without headphones, output audio must never be treated as an interruption.
-        if (phaseRef.current === "playing" || phaseRef.current === "narrating" || sendingRef.current) return;
         analyser.getByteTimeDomainData(values);
         const level = values.reduce((sum, value) => sum + Math.abs(value - 128), 0) / values.length;
         const now = Date.now();
+        if (phaseRef.current === "playing") {
+          // Sem fones, exigimos voz alta e sustentada (2 medições seguidas) antes de tratar como
+          // interrupção real — evita que eco/ruído ambiente dispare uma interrupção falsa.
+          if (level > 20) {
+            interruptStreak += 1;
+            if (interruptStreak >= 2 && recorderRef.current?.state !== "recording") {
+              interruptStreak = 0;
+              void interruptCharacter().then(() => startRecording(stream));
+            }
+          } else {
+            interruptStreak = 0;
+          }
+          return;
+        }
+        interruptStreak = 0;
+        if (phaseRef.current === "narrating" || sendingRef.current) return;
         if (level > 12) {
           lastVoiceAtRef.current = now;
           if (recorderRef.current?.state !== "recording") startRecording(stream);
