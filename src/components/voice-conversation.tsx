@@ -34,6 +34,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playerRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const monitorRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -45,6 +46,17 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
   const playingTurnRef = useRef<ReplayTurn | null>(null);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  function unlockAudio() {
+    const player = playerRef.current ?? new Audio();
+    playerRef.current = player;
+    try {
+      player.muted = true;
+      player.src = "data:audio/wav;base64,UklGRlYAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTIAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA=";
+      void player.play().then(() => { player.pause(); player.muted = false; }).catch(() => { player.muted = false; });
+    } catch { player.muted = false; }
+    try { const unlock = new SpeechSynthesisUtterance(" "); unlock.volume = 0.01; window.speechSynthesis.speak(unlock); } catch { /* Safari fallback unavailable */ }
+  }
 
   function cleanAudio() {
     const audio = audioRef.current;
@@ -119,9 +131,13 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
 
   async function playPrepared(prepared: PreparedAudio, kind: "narration" | "character", onEnded?: () => Promise<void> | void) {
     cleanAudio();
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     const url = URL.createObjectURL(prepared.blob);
     audioUrlRef.current = url;
-    const audio = new Audio(url);
+    const audio = playerRef.current ?? new Audio();
+    playerRef.current = audio;
+    audio.muted = false;
+    audio.src = url;
     if (prepared.turn) { audio.dataset.turnId = prepared.turn.id; audio.dataset.pending = String(prepared.turn.pending); }
     audioRef.current = audio;
     setPhase(kind === "narration" ? "narrating" : "playing");
@@ -135,10 +151,6 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
     await audio.play();
   }
 
-  function useNativeCharacterVoice() {
-    return /iPad|iPhone|iPod/.test(navigator.userAgent);
-  }
-
   async function playCharacter(turn: ReplayTurn, blob?: Blob) {
     playingTurnRef.current = turn;
     const completed = async () => {
@@ -146,7 +158,6 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
       setPhase("idle"); setStatus("Sua vez de falar."); setReplayTurn(null);
       if (turn.pending) await confirmDelivery(turn.id, false).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
     };
-    if (turn.content && useNativeCharacterVoice()) { speakWithBrowser(turn.content, "character", completed); return; }
     const prepared = blob ? { blob, turn } : { blob: await (await request(`/api/sessions/${sessionId}/speech?turnId=${encodeURIComponent(turn.id)}`, { cache: "no-store" })).blob(), turn };
     try {
       await playPrepared(prepared, "character", completed);
@@ -160,6 +171,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, mediaReady }: 
   }
 
   async function startInitialSequence() {
+    unlockAudio();
     const prepared = initialAudioRef.current;
     if (!prepared || initialStartedRef.current) return;
     initialStartedRef.current = true;
