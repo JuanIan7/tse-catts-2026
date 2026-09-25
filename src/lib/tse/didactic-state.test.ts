@@ -18,7 +18,7 @@ describe("estado didático no servidor", () => {
     expect(submission.itens.apresentacao_pessoal).toMatchObject({ estado: "feito" });
     expect(submission.itens.fatores_protecao).toMatchObject({ estado: "encontrou_explorou" });
     expect(submission.itens.aproximacao_calma_silenciosa).toMatchObject({ estado: "nao_observavel" });
-    expect(calculateDidacticEvaluation(state).cobertura.avaliados).toBe(13);
+    expect(calculateDidacticEvaluation(state).cobertura.avaliados).toBe(16);
     expect(calculateDidacticEvaluation(createDidacticState()).nota_final).toBe(0);
   });
 
@@ -46,6 +46,7 @@ describe("estado didático no servidor", () => {
     const first = registerInitialSilence(createDidacticState());
     expect(first.recorded).toBe(true);
     expect(toEvaluationSubmission(first.state).itens.silencio_inicial).toMatchObject({ estado: "feito" });
+    expect(calculateDidacticEvaluation(first.state).nota_final).toBe(0.5);
     expect(registerInitialSilence(first.state).recorded).toBe(false);
     const afterTurn = applyDidacticSignals(first.state, { rapport_delta: 0, categorias_reveladas: [], evidencias: [], erros_graves: [], acceptsExit: false });
     expect(registerInitialSilence(afterTurn).recorded).toBe(false);

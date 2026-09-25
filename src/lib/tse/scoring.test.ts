@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { calculateEvaluation, testSubmission } from "./scoring";
 
-describe("motor de pontuação TSE v0.3", () => {
+describe("motor de pontuação TSE v0.4", () => {
   it("mantém os quatro cenários de autoteste do motor original", () => {
     const best = calculateEvaluation(testSubmission("best"));
     expect(best.nota_final).toBe(10);

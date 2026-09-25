@@ -1,9 +1,9 @@
 import type { Difficulty } from "./session-case";
 
 export const sessionDurationMs: Record<Difficulty, number> = {
-  FACIL: 10 * 60 * 1000,
-  MEDIA: 15 * 60 * 1000,
-  DIFICIL: 25 * 60 * 1000,
+  FACIL: 20 * 60 * 1000,
+  MEDIA: 25 * 60 * 1000,
+  DIFICIL: 35 * 60 * 1000,
 };
 
 export function deadlineForSession(difficulty: Difficulty, startedAt: string | null) {

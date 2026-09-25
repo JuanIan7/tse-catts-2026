@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { sessionDurationMs } from "@/lib/tse/session-timer";
 import styles from "./voice-conversation.module.css";
 
 type Mode = "PRESSIONAR_PARA_FALAR" | "MICROFONE_ABERTO";
@@ -37,7 +38,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
   const [pendingReplayDone, setPendingReplayDone] = useState(false);
   const [initialReady, setInitialReady] = useState(!lastCharacterTurn);
   const [initialStarted, setInitialStarted] = useState(false);
-  const durationMs = difficulty === "FACIL" ? 600000 : difficulty === "MEDIA" ? 900000 : 1500000;
+  const durationMs = sessionDurationMs[difficulty];
   const [deadlineAt, setDeadlineAt] = useState<number | null>(() => startedAt ? new Date(startedAt).getTime() + durationMs : null);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(() => startedAt ? Math.max(0, Math.ceil((new Date(startedAt).getTime() + durationMs - Date.now()) / 1000)) : null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -122,8 +123,15 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
     setPhase("idle");
     setStatus("Tempo encerrado. Gerando sua avaliação…");
     try {
-      await request("/api/sessions/" + sessionId + "/timeout", { method: "POST" });
-      window.location.reload();
+      const response = await request("/api/sessions/" + sessionId + "/timeout", { method: "POST" });
+      const result = await response.json() as { completed?: boolean };
+      if (result.completed) {
+        window.location.reload();
+        return;
+      }
+      timeoutSentRef.current = false;
+      setStatus("Cronômetro sendo sincronizado com a sessão…");
+      setDeadlineAt(Date.now() + 3000);
     } catch (cause) {
       timeoutSentRef.current = false;
       setError(cause instanceof Error ? cause.message : "Não foi possível encerrar a ocorrência.");

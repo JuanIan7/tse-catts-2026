@@ -19,7 +19,7 @@ export type DidacticState = {
 
 const itemById = new Map(rubric.itens.map((item) => [item.id, item]));
 const dialogueObservableItems = new Set([
-  "silencio_inicial", "apresentacao_pessoal", "espaco_para_desabafo", "perguntas_simples_complexas", "parafrase_resumida", "memoria_linkada", "maieutica_ou_teia", "desistencia_ou_saida_digna", "dominou_dialogo", "conduziu_solucao", "fatores_protecao", "fatores_risco", "fator_principal",
+  "silencio_inicial", "apresentacao_pessoal", "respeitou_pausas_silenciosas", "ouviu_atentamente_postura", "espaco_para_desabafo", "tom_de_voz", "perguntas_simples_complexas", "parafrase_resumida", "memoria_linkada", "maieutica_ou_teia", "desistencia_ou_saida_digna", "dominou_dialogo", "conduziu_solucao", "fatores_protecao", "fatores_risco", "fator_principal",
 ]);
 
 const errorById = new Map(rubric.erros_graves.map((error) => [error.id, error]));

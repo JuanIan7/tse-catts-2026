@@ -5,7 +5,7 @@ import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation,
 import { detectSevereOccurrences, isPlainEndPhrase } from "./severe-occurrence";
 import { openAIErrorMessage } from "./openai-error";
 import type { Difficulty, InternalCase } from "./session-case";
-import { isSessionExpired } from "./session-timer";
+import { isSessionExpired, sessionDurationMs } from "./session-timer";
 import { evaluateCompletedTranscript } from "./final-evaluation";
 import { normalizePublicBriefing } from "./briefing";
 
@@ -53,7 +53,7 @@ export async function startTrainingSession(input: { userId: string; sessionId: s
   if (terminalStatuses.has(session.status)) throw new Error("Esta ocorrência já foi encerrada.");
   await transitionToActive(session);
   const activeSession = await getOwnedSession(input.userId, input.sessionId);
-  const durationMs = activeSession.difficulty === "FACIL" ? 600000 : activeSession.difficulty === "MEDIA" ? 900000 : 1500000;
+  const durationMs = sessionDurationMs[activeSession.difficulty];
   return { startedAt: activeSession.started_at, durationMs };
 }
 
@@ -75,7 +75,7 @@ async function finalizeSevereOccurrenceLimit(input: { userId: string; sessionId:
   const baseCalculation = await finalCalculation(session, "LIMITE DE OCORRÊNCIAS GRAVES ATINGIDO", true);
   const calculation = { ...baseCalculation, nota_bruta: 0, nota_final: 0, encerramento_forcado: true, ocorrencias_graves: input.occurrences, motivo_encerramento: "LIMITE DE OCORRÊNCIAS GRAVES ATINGIDO" };
   const { error } = await createSupabaseAdminClient().from("evaluations").upsert({
-    session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.3", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: 0,
+    session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.4", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: 0,
   }, { onConflict: "session_id" });
   if (error) throw new Error("Não foi possível preparar a avaliação automática.");
   await transition(session.id, "ENCERRADA_SEM_EXITO");
@@ -90,7 +90,7 @@ export async function finalizeTrainingSession(input: { userId: string; sessionId
   if (session.status !== "AVALIACAO_PENDENTE") await transition(session.id, "AVALIACAO_PENDENTE");
   const calculation = await finalCalculation(session, "SAÍDA DIGNA ACEITA", false);
   const { error: evaluationError } = await createSupabaseAdminClient().from("evaluations").upsert({
-    session_id: session.id, user_id: input.userId, partial: calculation.parcial, result: "EXITO", rubric_version: "0.3", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
+    session_id: session.id, user_id: input.userId, partial: calculation.parcial, result: "EXITO", rubric_version: "0.4", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
   }, { onConflict: "session_id" });
   if (evaluationError) throw new Error("Não foi possível preparar a avaliação automática.");
   await transition(session.id, "ENCERRADA_COM_EXITO");
@@ -105,7 +105,7 @@ export async function finalizeManualTrainingSession(input: { userId: string; ses
   if (session.status !== "AVALIACAO_PENDENTE") await transition(session.id, "AVALIACAO_PENDENTE");
   const calculation = await finalCalculation(session, "ENCERRAMENTO MANUAL", true);
   const { error: evaluationError } = await createSupabaseAdminClient().from("evaluations").upsert({
-    session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.3", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
+    session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.4", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
   }, { onConflict: "session_id" });
   if (evaluationError) throw new Error("Não foi possível preparar a avaliação automática.");
   await transition(session.id, "ENCERRADA_SEM_EXITO");
@@ -136,7 +136,7 @@ export async function finalizeTimedTrainingSession(input: { userId: string; sess
   if (session.status !== "AVALIACAO_PENDENTE") await transition(session.id, "AVALIACAO_PENDENTE");
   const calculation = await finalCalculation(session, "TEMPO ESGOTADO", true);
   const { error: evaluationError } = await createSupabaseAdminClient().from("evaluations").upsert({
-    session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.3", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
+    session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.4", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
   }, { onConflict: "session_id" });
   if (evaluationError) throw new Error("Não foi possível preparar a avaliação automática.");
   await transition(session.id, "ENCERRADA_SEM_EXITO");
