@@ -39,8 +39,9 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
   const [initialReady, setInitialReady] = useState(!lastCharacterTurn);
   const [initialStarted, setInitialStarted] = useState(false);
   const durationMs = sessionDurationMs[difficulty];
-  const [deadlineAt, setDeadlineAt] = useState<number | null>(() => startedAt ? new Date(startedAt).getTime() + durationMs : null);
-  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(() => startedAt ? Math.max(0, Math.ceil((new Date(startedAt).getTime() + durationMs - Date.now()) / 1000)) : null);
+  const [clockStarted, setClockStarted] = useState(Boolean(startedAt));
+  const [clockActive, setClockActive] = useState(false);
+  const [remainingMs, setRemainingMs] = useState<number>(() => durationMs);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -116,6 +117,16 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
     await request("/api/sessions/" + sessionId + "/delivery", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turnId, interrupted }) });
   }
 
+  async function setClockActivity(activity: "PAUSED" | "VOICE_STUDENT" | "VOICE_CHARACTER") {
+    const response = await request(`/api/sessions/${sessionId}/clock`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ activity }) });
+    const result = await response.json() as { remainingMs: number; expired: boolean };
+    setClockStarted(true);
+    setClockActive(activity !== "PAUSED");
+    setRemainingMs(result.remainingMs);
+    if (result.expired) void expireSession();
+    return result;
+  }
+
   async function expireSession() {
     if (timeoutSentRef.current) return;
     timeoutSentRef.current = true;
@@ -131,41 +142,38 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
       }
       timeoutSentRef.current = false;
       setStatus("Cronômetro sendo sincronizado com a sessão…");
-      setDeadlineAt(Date.now() + 3000);
+      setRemainingMs(3000);
     } catch (cause) {
       timeoutSentRef.current = false;
       setError(cause instanceof Error ? cause.message : "Não foi possível encerrar a ocorrência.");
     }
   }
 
-  function startClock() {
-    if (deadlineAt) return;
-    const fallbackDeadline = Date.now() + durationMs;
-    setDeadlineAt(fallbackDeadline);
-    setRemainingSeconds(Math.ceil(durationMs / 1000));
-    void request("/api/sessions/" + sessionId + "/start", { method: "POST" })
-      .then((response) => response.json() as Promise<{ startedAt: string | null; durationMs: number }>)
-      .then((result) => {
-        if (result.startedAt) {
-          const serverDeadline = new Date(result.startedAt).getTime() + result.durationMs;
-          setDeadlineAt(serverDeadline);
-          setRemainingSeconds(Math.max(0, Math.ceil((serverDeadline - Date.now()) / 1000)));
-        }
-      })
-      .catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível iniciar o cronômetro."));
+  async function startClock() {
+    try {
+      const response = await request("/api/sessions/" + sessionId + "/start", { method: "POST" });
+      const result = await response.json() as { remainingMs: number };
+      setClockStarted(true);
+      setClockActive(false);
+      setRemainingMs(result.remainingMs);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível iniciar o cronômetro.");
+    }
   }
 
   useEffect(() => {
-    if (!deadlineAt) return;
+    if (!clockStarted) return;
     const tick = () => {
-      const seconds = Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000));
-      setRemainingSeconds(seconds);
-      if (seconds === 0) void expireSession();
+      setRemainingMs((current) => {
+        const next = clockActive ? Math.max(0, current - 500) : current;
+        if (next === 0) void expireSession();
+        return next;
+      });
     };
     tick();
     const interval = window.setInterval(tick, 500);
     return () => window.clearInterval(interval);
-  }, [deadlineAt]);
+  }, [clockActive, clockStarted]);
 
   async function prepareInitialAudio() {
     if (!mediaReady) {
@@ -207,6 +215,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
     audioRef.current = audio;
     setPhase(kind === "narration" ? "narrating" : "playing");
     setStatus(kind === "narration" ? "Narrando a ocorrência…" : "Tentante falando…");
+    if (kind === "character") await setClockActivity("VOICE_CHARACTER");
     let retried = false;
     let stalledCheck: number | null = null;
     let observedTime = -1;
@@ -220,12 +229,13 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
       }
       stopWatch();
       cleanAudio();
+      if (kind === "character") void setClockActivity("PAUSED").catch(() => undefined);
       setPhase("idle");
       if (kind === "narration") { initialStartedRef.current = false; setInitialStarted(false); }
       else if (prepared.turn) setReplayTurn(prepared.turn);
       setError("A reprodução de áudio foi interrompida. Tente novamente.");
     };
-    audio.onended = () => { stopWatch(); cleanAudio(); void onEnded?.(); };
+    audio.onended = () => { stopWatch(); cleanAudio(); if (kind === "character") void setClockActivity("PAUSED").catch(() => undefined); void onEnded?.(); };
     audio.onerror = fail;
     audio.onstalled = () => window.setTimeout(() => { if (!audio.ended && audio.paused) fail(); }, 700);
     audio.onpause = () => window.setTimeout(() => { if (!audio.ended && audio.paused) fail(); }, 250);
@@ -259,7 +269,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
 
   async function startInitialSequence() {
     unlockAudio();
-    startClock();
+    await startClock();
     const prepared = initialAudioRef.current;
     if (!prepared || initialStartedRef.current) return;
     initialStartedRef.current = true;
@@ -320,12 +330,13 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || chunksRef.current[0]?.type || "audio/webm" });
       recorderRef.current = null;
+      void setClockActivity("PAUSED").catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível pausar o cronômetro."));
       if (mode === "PRESSIONAR_PARA_FALAR") releaseStream(stream);
       void uploadRecording(blob);
     };
     recorder.onerror = () => { setPhase("idle"); setError("O navegador interrompeu a gravação. Tente novamente ou use texto."); };
     speechStartedAtRef.current = Date.now();
-    recorder.start(250); setPhase("recording"); setStatus(mode === "MICROFONE_ABERTO" ? "Microfone aberto — estou ouvindo…" : "Você está falando — solte para enviar.");
+    recorder.start(250); void setClockActivity("VOICE_STUDENT").catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível iniciar o cronômetro.")); setPhase("recording"); setStatus(mode === "MICROFONE_ABERTO" ? "Microfone aberto — estou ouvindo…" : "Você está falando — solte para enviar.");
     window.setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, 90_000);
   }
 
@@ -404,7 +415,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
   const recording = phase === "recording";
   const playing = phase === "playing" || phase === "narrating";
   return <section className={styles.console} aria-live="polite">
-    <div className={styles.titleRow}><div><h2>Conversa por voz</h2><p>O áudio é transitório; a transcrição didática fica protegida na sessão.</p></div>{remainingSeconds !== null && <div className={styles.timer} aria-label="Tempo restante da ocorrência"><span>Tempo restante</span><strong>{formatRemaining(remainingSeconds)}</strong></div>}</div>
+    <div className={styles.titleRow}><div><h2>Conversa por voz</h2><p>O áudio é transitório; a transcrição didática fica protegida na sessão.</p></div>{clockStarted && <div className={styles.timer} aria-label="Tempo restante da ocorrência"><span>Tempo restante</span><strong>{formatRemaining(Math.ceil(remainingMs / 1000))}</strong></div>}</div>
     {!mediaReady ? <p className={styles.hint}>Preparando as imagens da ocorrência…</p> : !initialReady ? <p className={styles.hint}>Preparando áudio…</p> : !initialStarted && lastCharacterTurn ? <button type="button" className={styles.replay} onClick={() => void startInitialSequence()}>Iniciar simulação com áudio</button> : <>
       {pendingCharacterTurn && !pendingReplayDone && <button type="button" className={styles.replay} onClick={() => void playCharacter(pendingCharacterTurn)} disabled={phase === "playing" || phase === "sending"}>Ouvir resposta pendente</button>}
       {!consented ? <div className={styles.consent}><p>Ao ativar a voz, você concorda com a transcrição temporária da sua fala para esta simulação.</p><button type="button" onClick={() => void registerConsent()}>Li e concordo em ativar voz</button></div> : <>

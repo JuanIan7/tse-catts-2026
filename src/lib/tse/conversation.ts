@@ -5,7 +5,7 @@ import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation,
 import { detectSevereOccurrences, isPlainEndPhrase } from "./severe-occurrence";
 import { openAIErrorMessage } from "./openai-error";
 import type { Difficulty, InternalCase } from "./session-case";
-import { isSessionExpired, sessionDurationMs } from "./session-timer";
+import { isActiveSessionExpired, remainingSessionMs, type ActiveClock, type ClockActivity } from "./active-session-clock";
 import { evaluateCompletedTranscript } from "./final-evaluation";
 import { normalizePublicBriefing } from "./briefing";
 
@@ -13,7 +13,7 @@ type Speaker = "ALUNO" | "PERSONAGEM" | "NARRADOR" | "SISTEMA";
 type Source = "TEXTO" | "VOZ" | "SISTEMA";
 type DeliveryStatus = "PENDENTE" | "OUVIDO" | "INTERROMPIDO";
 type TranscriptTurn = { speaker: Speaker; content: string };
-type SessionRecord = { id: string; user_id: string; status: string; difficulty: Difficulty; started_at: string | null; didactic_state: unknown; didactic_state_revision: number };
+type SessionRecord = { id: string; user_id: string; status: string; difficulty: Difficulty; started_at: string | null; didactic_state: unknown; didactic_state_revision: number } & ActiveClock;
 type CharacterTurn = { id: string; sequence_number: number };
 const activeStatuses = new Set(["CRIADA", "EM_ANDAMENTO", "RECONEXAO"]);
 const terminalStatuses = new Set(["ENCERRADA_COM_EXITO", "ENCERRADA_SEM_EXITO", "CANCELADA"]);
@@ -42,19 +42,32 @@ async function persistDidacticState(session: SessionRecord, nextState: unknown) 
 }
 
 async function getOwnedSession(userId: string, sessionId: string) {
-  const { data } = await createSupabaseAdminClient().from("training_sessions").select("id, user_id, status, difficulty, started_at, didactic_state, didactic_state_revision").eq("id", sessionId).maybeSingle();
+  const { data } = await createSupabaseAdminClient().from("training_sessions").select("id, user_id, status, difficulty, started_at, didactic_state, didactic_state_revision, active_elapsed_ms, active_activity, active_started_at").eq("id", sessionId).maybeSingle();
   const session = data as SessionRecord | null;
   if (!session || session.user_id !== userId) throw new Error("Ocorrência indisponível.");
   return session;
+}
+
+async function setClockActivity(sessionId: string, activity: ClockActivity) {
+  const { data, error } = await createSupabaseAdminClient().rpc("set_training_clock_activity", { p_session_id: sessionId, p_activity: activity });
+  if (error || !data) throw new Error("Não foi possível sincronizar o cronômetro da ocorrência.");
+  return data as SessionRecord;
 }
 
 export async function startTrainingSession(input: { userId: string; sessionId: string }) {
   const session = await getOwnedSession(input.userId, input.sessionId);
   if (terminalStatuses.has(session.status)) throw new Error("Esta ocorrência já foi encerrada.");
   await transitionToActive(session);
-  const activeSession = await getOwnedSession(input.userId, input.sessionId);
-  const durationMs = sessionDurationMs[activeSession.difficulty];
-  return { startedAt: activeSession.started_at, durationMs };
+  const activeSession = await setClockActivity(input.sessionId, "PAUSED");
+  return { remainingMs: remainingSessionMs(activeSession.difficulty, activeSession) };
+}
+
+export async function updateTrainingClock(input: { userId: string; sessionId: string; activity: ClockActivity }) {
+  const session = await getOwnedSession(input.userId, input.sessionId);
+  if (terminalStatuses.has(session.status)) throw new Error("Esta ocorrência já foi encerrada.");
+  const updated = await setClockActivity(session.id, input.activity);
+  const remainingMs = remainingSessionMs(updated.difficulty, updated);
+  return { remainingMs, expired: remainingMs === 0 };
 }
 
 async function finalCalculation(session: SessionRecord, reason: string, partial: boolean) {
@@ -128,7 +141,8 @@ export async function finalizeTimedTrainingSession(input: { userId: string; sess
   let session = await getOwnedSession(input.userId, input.sessionId);
   if (terminalStatuses.has(session.status)) return { completed: true };
   if (!session.started_at) throw new Error("A ocorrência ainda não foi iniciada.");
-  if (!isSessionExpired(session.difficulty, session.started_at)) return { completed: false };
+  session = await setClockActivity(session.id, "PAUSED");
+  if (!isActiveSessionExpired(session.difficulty, session)) return { completed: false, remainingMs: remainingSessionMs(session.difficulty, session) };
   if (session.status === "CRIADA" || session.status === "RECONEXAO") {
     await transitionToActive(session);
     session = await getOwnedSession(input.userId, input.sessionId);
@@ -140,7 +154,7 @@ export async function finalizeTimedTrainingSession(input: { userId: string; sess
   }, { onConflict: "session_id" });
   if (evaluationError) throw new Error("Não foi possível preparar a avaliação automática.");
   await transition(session.id, "ENCERRADA_SEM_EXITO");
-  return { completed: true };
+  return { completed: true, remainingMs: 0 };
 }
 
 export async function recordStudentTurn(input: { userId: string; sessionId: string; content: string; source: "TEXTO" | "VOZ" }) {
@@ -150,7 +164,8 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
   if (!activeStatuses.has(session.status)) throw new Error("Ocorrência indisponível.");
   await transitionToActive(session);
   if (!session.started_at) session = await getOwnedSession(input.userId, input.sessionId);
-  if (isSessionExpired(session.difficulty, session.started_at)) {
+  if (input.source === "TEXTO") session = await setClockActivity(session.id, "TEXT");
+  if (isActiveSessionExpired(session.difficulty, session)) {
     await finalizeTimedTrainingSession(input);
     throw new Error("O tempo da ocorrência terminou. A avaliação foi gerada automaticamente.");
   }
