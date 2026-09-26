@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import rubric from "./barema.v0.3.json";
 import { calculateEvaluation, type ErrorSubmission, type EvaluationSubmission, type ItemSubmission } from "./scoring";
 import { toEvaluationSubmission, type DidacticState } from "./didactic-state";
+import { detectDialogueTools, dialogueControlState } from "./dialogue-tools";
 import type { InternalCase, PublicBriefing } from "./session-case";
 
 type Transcript = { speaker: string; content: string; delivery_status: string };
@@ -38,6 +39,24 @@ function mergeFinalItems(baseline: EvaluationSubmission["itens"], candidate: unk
   }));
 }
 
+function deterministicToolItems(transcript: Transcript[]): Record<string, ItemSubmission> {
+  const tools = detectDialogueTools(transcript);
+  return {
+    ...(tools.parafrase ? { parafrase_resumida: { estado: "feito", evidencia: `Paráfrase resumida identificada: ${tools.parafrase}` } } : {}),
+    ...(tools.teia ? { maieutica_ou_teia: { estado: "feito", evidencia: `Teia de indução identificada: ${tools.teia}` } } : {}),
+  };
+}
+
+function applyDialogueControl(items: EvaluationSubmission["itens"], transcript: Transcript[]) {
+  const state = dialogueControlState(items, transcript);
+  const evidence = state === "feito"
+    ? "Diálogo sustentado com fator de proteção, fator de risco e ferramenta de linguagem reconhecidos, sem erro de memória detectado."
+    : state === "parcial"
+      ? "Um erro de repetição, esquecimento ou troca de informação foi identificado na conversa."
+      : "Não houve os requisitos completos de domínio do diálogo ou foram identificados dois ou mais erros de memória.";
+  return { ...items, dominou_dialogo: { estado: state, evidencia: evidence } };
+}
+
 function fallback(state: DidacticState, internalCase: InternalCase, reason: string) {
   return {
     ...calculateEvaluation(toEvaluationSubmission(state)),
@@ -65,7 +84,7 @@ export async function evaluateCompletedTranscript(input: { state: DidacticState;
     "Aproximação calma e silenciosa, respeito às pausas, espaço para desabafo, escuta e tom adequado recebem crédito protocolar automático. Só retire escuta/domínio se o aluno repetir, esquecer ou trocar fato já dito; só retire tom se houver grito textual inequívoco. Silêncio inicial exige evento de sistema; apresentação exige nome E Bombeiros/CBMERJ.",
     "Perguntas: uma simples de sim/não OU uma complexa vale parcial (0.5); ambas valem feito (1.0). Complexa aprofunda uma simples. Paráfrase exige resumo de fatos e pergunta. Memória linkada é convite a lembrança positiva passada ou futura. Maiêutica OU TED valem integralmente: perguntas encadeadas que conduzem a conclusão, ou duas alternativas positivas desejadas.",
     "Saída digna: convite simples a sair da cena, sem ambulância/cuidado especializado, vale parcial (0.5). Ambulância e atendimento médico especializado valem 1.0 somente quando a oferta é segura e plausível. Condução à solução vale 1.0 somente para solução legal, verdadeira e realizável, preferencialmente hospitalar; não há parcial. Domínio vale 0.3 se achou um risco, uma proteção e usou ferramenta sem erros de memória; 0.15 com exatamente um erro de memória; zero com dois ou mais.",
-    "FATORES — avalie a transcrição inteira, nunca a ficha sozinha. Para proteção/risco, cada fator descoberto pelo aluno vale 1 dividido pelo total daquele tipo no caso. Use estado encontrou_explorou/isolu e acrescente ajuste numérico exato (por exemplo 0.3 ou 0.5). Pontue apenas quando personagem revelou e aluno identificou/retomou. Fator principal vale 1.0 exclusivamente se o aluno captou o gatilho recente que precipitou a crise naquele momento. Evidência deve citar fala do personagem e resposta do aluno.",
+    "FATORES — avalie a transcrição inteira, nunca a ficha sozinha. Para proteção/risco, cada fator descoberto pelo aluno vale 1 dividido pelo total daquele tipo no caso. Use estado encontrou_explorou/isolu e acrescente ajuste numérico exato (por exemplo 0.3 ou 0.5). Pontue apenas quando personagem revelou e aluno identificou/retomou. Se o aluno retomar literalmente uma separação, perda, isolamento, violência ou outro problema que o personagem revelou, isso é fator de risco e não pode ficar zerado. Fator principal vale 1.0 exclusivamente se o aluno captou o gatilho recente que precipitou a crise naquele momento. Evidência deve citar fala do personagem e resposta do aluno.",
     "Erros graves somente quando houver fala literal inequívoca. Não crie fatos nem instrua sobre autoagressão.",
     "Retorne JSON com itens, erros_graves, acertos (máx. 4), melhorias (máx. 4), linha_evolucao (máx. 14). Cada item precisa de estado permitido e evidencia curta. Somente fatores_protecao e fatores_risco podem conter ajuste proporcional.",
     `ESTADOS PERMITIDOS: ${JSON.stringify(allowed)}`,
@@ -80,7 +99,10 @@ export async function evaluateCompletedTranscript(input: { state: DidacticState;
     const confirmedErrors = Object.fromEntries(Object.entries(baseline.erros_graves ?? {}).filter(([, entry]) => appliedError(entry)));
     // A análise final aprimora os itens, mas não cria deduções graves novas.
     // Elas exigem detecção objetiva registrada durante a conversa.
-    const submission: EvaluationSubmission = { parcial: input.partial, itens: mergeFinalItems(baseline.itens, parsed.itens), erros_graves: confirmedErrors };
+    const modelItems = mergeFinalItems(baseline.itens, parsed.itens);
+    const deliveredTranscript = input.transcript.filter((turn) => turn.delivery_status === "OUVIDO");
+    const transcriptItems = mergeFinalItems(modelItems, deterministicToolItems(deliveredTranscript));
+    const submission: EvaluationSubmission = { parcial: input.partial, itens: applyDialogueControl(transcriptItems, input.transcript), erros_graves: confirmedErrors };
     const calculation = calculateEvaluation(submission);
     const extras: FinalExtras = {
       acertos: Array.isArray(parsed.acertos) ? parsed.acertos.filter((x): x is string => typeof x === "string").slice(0, 4) : [],
