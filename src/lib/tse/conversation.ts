@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { respondAsCharacter } from "./character";
 import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation, readDidacticState, recordInterruption, registerInitialSilence as registerInitialSilenceState, seriousOccurrenceCount } from "./didactic-state";
 import { detectSevereOccurrences, isPlainEndPhrase } from "./severe-occurrence";
+import { isPersonalPresentation } from "./personal-presentation";
 import { openAIErrorMessage } from "./openai-error";
 import type { Difficulty, InternalCase } from "./session-case";
 import { activeElapsedMs, isActiveSessionExpired, remainingSessionMs, type ActiveClock, type ClockActivity } from "./active-session-clock";
@@ -202,10 +203,13 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
   await transitionToActive(session);
   await appendTranscript(input.sessionId, "ALUNO", content, input.source, "OUVIDO");
   const deliveryStatus: DeliveryStatus = input.source === "VOZ" ? "PENDENTE" : "OUVIDO";
+  const deterministicEvidence = isPersonalPresentation(content)
+    ? [{ item_id: "apresentacao_pessoal", estado: "feito", evidencia: `Apresentação identificada: ${content.slice(0, 300)}` }]
+    : [];
   const preliminaryState = applyDidacticSignals(didacticState, {
     rapport_delta: character.rapport_delta,
     categorias_reveladas: character.categorias_reveladas,
-    evidencias: character.evidencias,
+    evidencias: [...character.evidencias, ...deterministicEvidence],
     erros_graves: [],
     acceptsExit: false,
   });
