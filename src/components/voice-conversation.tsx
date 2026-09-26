@@ -321,22 +321,23 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
     finally { sendingRef.current = false; }
   }
 
-  function startRecording(stream: MediaStream) {
+  async function startRecording(stream: MediaStream) {
     if (recorderRef.current?.state === "recording" || sendingRef.current) return;
     chunksRef.current = [];
     const recorder = new MediaRecorder(stream, recorderOptions());
     recorderRef.current = recorder;
     recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
-    recorder.onstop = () => {
+    recorder.onstop = () => { void (async () => {
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || chunksRef.current[0]?.type || "audio/webm" });
       recorderRef.current = null;
-      void setClockActivity("PAUSED").catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível pausar o cronômetro."));
+      await setClockActivity("PAUSED");
       if (mode === "PRESSIONAR_PARA_FALAR") releaseStream(stream);
-      void uploadRecording(blob);
-    };
+      await uploadRecording(blob);
+    })().catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível pausar o cronômetro.")); };
     recorder.onerror = () => { setPhase("idle"); setError("O navegador interrompeu a gravação. Tente novamente ou use texto."); };
     speechStartedAtRef.current = Date.now();
-    recorder.start(250); void setClockActivity("VOICE_STUDENT").catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível iniciar o cronômetro.")); setPhase("recording"); setStatus(mode === "MICROFONE_ABERTO" ? "Microfone aberto — estou ouvindo…" : "Você está falando — solte para enviar.");
+    await setClockActivity("VOICE_STUDENT");
+    recorder.start(250); setPhase("recording"); setStatus(mode === "MICROFONE_ABERTO" ? "Microfone aberto — estou ouvindo…" : "Você está falando — solte para enviar.");
     window.setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, 90_000);
   }
 
@@ -360,7 +361,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
       if (phaseRef.current === "playing") await interruptCharacter();
       const stream = await getFreshStream();
       if (!pressActiveRef.current) { releaseStream(stream); return; }
-      startRecording(stream);
+      await startRecording(stream);
     } catch (cause) {
       pressActiveRef.current = false;
       setError(cause instanceof Error ? cause.message : "Não foi possível acessar o microfone.");
@@ -394,7 +395,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
             interruptStreak += 1;
             if (interruptStreak >= 2 && recorderRef.current?.state !== "recording") {
               interruptStreak = 0;
-              void interruptCharacter().then(() => startRecording(stream));
+              void interruptCharacter().then(() => startRecording(stream)).catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível iniciar a gravação."));
             }
           } else {
             interruptStreak = 0;
@@ -405,7 +406,7 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
         if (phaseRef.current === "narrating" || sendingRef.current) return;
         if (level > 12) {
           lastVoiceAtRef.current = now;
-          if (recorderRef.current?.state !== "recording") startRecording(stream);
+          if (recorderRef.current?.state !== "recording") void startRecording(stream).catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível iniciar a gravação."));
         }
         if (recorderRef.current?.state === "recording" && now - lastVoiceAtRef.current > 10_000 && now - speechStartedAtRef.current > 1200) recorderRef.current.stop();
       }, 150);
