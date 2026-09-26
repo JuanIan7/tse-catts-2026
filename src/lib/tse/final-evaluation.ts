@@ -70,7 +70,9 @@ export async function evaluateCompletedTranscript(input: { state: DidacticState;
     const response = await new OpenAI({ apiKey: key }).responses.create({ model: "gpt-4o-mini", store: false, max_output_tokens: 2200, input: [{ role: "developer", content: prompt }, { role: "user", content: "Gere a avaliação final em JSON." }], text: { format: { type: "json_object" } } });
     const parsed = JSON.parse(response.output_text) as { itens?: EvaluationSubmission["itens"]; erros_graves?: EvaluationSubmission["erros_graves"]; acertos?: unknown; melhorias?: unknown; linha_evolucao?: unknown };
     const confirmedErrors = Object.fromEntries(Object.entries(baseline.erros_graves ?? {}).filter(([, entry]) => appliedError(entry)));
-    const submission: EvaluationSubmission = { parcial: input.partial, itens: mergeFinalItems(baseline.itens, parsed.itens), erros_graves: { ...(parsed.erros_graves ?? baseline.erros_graves), ...confirmedErrors } };
+    // A análise final aprimora os itens, mas não cria deduções graves novas.
+    // Elas exigem detecção objetiva registrada durante a conversa.
+    const submission: EvaluationSubmission = { parcial: input.partial, itens: mergeFinalItems(baseline.itens, parsed.itens), erros_graves: confirmedErrors };
     const calculation = calculateEvaluation(submission);
     const extras: FinalExtras = {
       acertos: Array.isArray(parsed.acertos) ? parsed.acertos.filter((x): x is string => typeof x === "string").slice(0, 4) : [],

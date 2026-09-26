@@ -192,7 +192,9 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
   const deliveryStatus: DeliveryStatus = input.source === "VOZ" ? "PENDENTE" : "OUVIDO";
   const acceptsExit = character.aceita_saida_digna && !isPlainEndPhrase(content);
   const deterministicErrors = detectSevereOccurrences(content);
-  const errorSignals = [...deterministicErrors, ...character.erros_graves].filter((signal, index, all) => all.findIndex((candidate) => candidate.erro_id === signal.erro_id) === index);
+  // Deduções graves precisam ser determinísticas e vinculadas à fala literal
+  // do aluno. A leitura probabilística do personagem não pode retirar pontos.
+  const errorSignals = deterministicErrors;
   const characterTurn = await appendTranscript(input.sessionId, "PERSONAGEM", character.fala, "SISTEMA", deliveryStatus, { finish_after_delivery: acceptsExit });
   const nextState = applyDidacticSignals(didacticState, {
     rapport_delta: character.rapport_delta,

@@ -6,6 +6,10 @@ describe("detecção determinística de ocorrência grave", () => {
     expect(detectSevereOccurrences("Fica quieto, seu idiota.")).toEqual([{ erro_id: "hostilidade_verbal", evidencia: "Fica quieto, seu idiota." }]);
   });
 
+  it("não confunde desejo de distância com erro grave do aluno", () => {
+    expect(detectSevereOccurrences("Eu entendo que você quer ficar sozinho.")).toEqual([]);
+  });
+
   it("não transforma encerramento textual em saída digna", () => {
     expect(isPlainEndPhrase("fim da abordagem")).toBe(true);
     expect(isPlainEndPhrase("Vamos encerrar a abordagem com sua concordância.")).toBe(false);
