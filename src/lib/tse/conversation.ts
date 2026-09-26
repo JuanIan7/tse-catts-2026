@@ -58,8 +58,9 @@ export async function startTrainingSession(input: { userId: string; sessionId: s
   const session = await getOwnedSession(input.userId, input.sessionId);
   if (terminalStatuses.has(session.status)) throw new Error("Esta ocorrência já foi encerrada.");
   await transitionToActive(session);
-  const activeSession = await setClockActivity(input.sessionId, "PAUSED");
-  return { remainingMs: remainingSessionMs(activeSession.difficulty, activeSession) };
+  let activeSession = await getOwnedSession(input.userId, input.sessionId);
+  if (activeSession.active_activity !== "TEXT") activeSession = await setClockActivity(input.sessionId, "PAUSED");
+  return { remainingMs: remainingSessionMs(activeSession.difficulty, activeSession), activity: activeSession.active_activity };
 }
 
 export async function updateTrainingClock(input: { userId: string; sessionId: string; activity: ClockActivity }) {

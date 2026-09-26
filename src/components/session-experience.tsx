@@ -8,7 +8,7 @@ import { InitialSilenceControl } from "./initial-silence-control";
 
 type ReplayTurn = { id: string; pending: boolean; content?: string };
 
-export function SessionExperience({ sessionId, briefing, locationUrl, lastCharacterTurn, pendingCharacterTurn, difficulty, startedAt, initialSilenceAvailable }: {
+export function SessionExperience({ sessionId, briefing, locationUrl, lastCharacterTurn, pendingCharacterTurn, difficulty, startedAt, remainingAtLoad, activityAtLoad, initialSilenceAvailable }: {
   sessionId: string;
   briefing: PublicBriefing;
   locationUrl: string | null;
@@ -16,6 +16,8 @@ export function SessionExperience({ sessionId, briefing, locationUrl, lastCharac
   pendingCharacterTurn: ReplayTurn | null;
   difficulty: "FACIL" | "MEDIA" | "DIFICIL";
   startedAt: string | null;
+  remainingAtLoad: number;
+  activityAtLoad: "PAUSED" | "VOICE_STUDENT" | "VOICE_CHARACTER" | "TEXT";
   initialSilenceAvailable: boolean;
 }) {
   const [mediaReady, setMediaReady] = useState(false);
@@ -26,7 +28,7 @@ export function SessionExperience({ sessionId, briefing, locationUrl, lastCharac
       locationUrl={locationUrl}
       onMediaReady={() => setMediaReady(true)}
     />
-    <VoiceConversation sessionId={sessionId} lastCharacterTurn={lastCharacterTurn} pendingCharacterTurn={pendingCharacterTurn} mediaReady={mediaReady} difficulty={difficulty} startedAt={startedAt} narrationText={briefing.acionamento + " " + briefing.contexto_observavel + " Informações recebidas: " + briefing.informacoes_recebidas.join(" ")} />
+    <VoiceConversation sessionId={sessionId} lastCharacterTurn={lastCharacterTurn} pendingCharacterTurn={pendingCharacterTurn} mediaReady={mediaReady} difficulty={difficulty} startedAt={startedAt} remainingAtLoad={remainingAtLoad} activityAtLoad={activityAtLoad} narrationText={briefing.acionamento + " " + briefing.contexto_observavel + " Informações recebidas: " + briefing.informacoes_recebidas.join(" ")} />
     <InitialSilenceControl sessionId={sessionId} available={initialSilenceAvailable} />
   </>;
 }

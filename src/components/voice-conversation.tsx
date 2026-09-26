@@ -26,7 +26,7 @@ function formatRemaining(seconds: number) {
   return String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0");
 }
 
-export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharacterTurn, mediaReady, difficulty, startedAt, narrationText }: { sessionId: string; lastCharacterTurn: ReplayTurn | null; pendingCharacterTurn: ReplayTurn | null; mediaReady: boolean; difficulty: "FACIL" | "MEDIA" | "DIFICIL"; startedAt: string | null; narrationText: string }) {
+export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharacterTurn, mediaReady, difficulty, startedAt, remainingAtLoad, activityAtLoad, narrationText }: { sessionId: string; lastCharacterTurn: ReplayTurn | null; pendingCharacterTurn: ReplayTurn | null; mediaReady: boolean; difficulty: "FACIL" | "MEDIA" | "DIFICIL"; startedAt: string | null; remainingAtLoad: number; activityAtLoad: "PAUSED" | "VOICE_STUDENT" | "VOICE_CHARACTER" | "TEXT"; narrationText: string }) {
   const [consented, setConsented] = useState(false);
   const [mode, setMode] = useState<Mode>("PRESSIONAR_PARA_FALAR");
   const [phase, setPhase] = useState<Phase>("preparing");
@@ -40,8 +40,8 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
   const [initialStarted, setInitialStarted] = useState(false);
   const durationMs = sessionDurationMs[difficulty];
   const [clockStarted, setClockStarted] = useState(Boolean(startedAt));
-  const [clockActive, setClockActive] = useState(false);
-  const [remainingMs, setRemainingMs] = useState<number>(() => durationMs);
+  const [clockActive, setClockActive] = useState(activityAtLoad === "TEXT");
+  const [remainingMs, setRemainingMs] = useState<number>(() => remainingAtLoad);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -152,10 +152,11 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
   async function startClock() {
     try {
       const response = await request("/api/sessions/" + sessionId + "/start", { method: "POST" });
-      const result = await response.json() as { remainingMs: number };
+      const result = await response.json() as { remainingMs: number; activity: "PAUSED" | "VOICE_STUDENT" | "VOICE_CHARACTER" | "TEXT" };
       setClockStarted(true);
-      setClockActive(false);
+      setClockActive(result.activity === "TEXT");
       setRemainingMs(result.remainingMs);
+      return result;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível iniciar o cronômetro.");
     }
@@ -244,7 +245,14 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
       observedTime = audio.currentTime;
     }, 3500);
     audioWatchRef.current = stalledCheck;
-    await audio.play();
+    try {
+      await audio.play();
+    } catch (cause) {
+      stopWatch();
+      cleanAudio();
+      if (kind === "character") await setClockActivity("PAUSED").catch(() => undefined);
+      throw cause;
+    }
   }
 
   async function playCharacter(turn: ReplayTurn, blob?: Blob) {
@@ -269,7 +277,8 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
 
   async function startInitialSequence() {
     unlockAudio();
-    await startClock();
+    const clock = await startClock();
+    if (clock?.activity === "TEXT") await setClockActivity("PAUSED");
     const prepared = initialAudioRef.current;
     if (!prepared || initialStartedRef.current) return;
     initialStartedRef.current = true;
