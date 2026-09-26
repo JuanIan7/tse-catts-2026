@@ -10,11 +10,12 @@ type FinalExtras = { acertos: string[]; melhorias: string[]; linha_evolucao: { f
 
 function appliedError(entry: ErrorSubmission) { return typeof entry === "boolean" ? entry : entry.aplicado === true; }
 
-function validFinalItem(entry: unknown): { estado: string; evidencia: string } | null {
+function validFinalItem(entry: unknown): { estado: string; evidencia: string; ajuste?: number } | null {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
-  const value = entry as { estado?: unknown; evidencia?: unknown };
+  const value = entry as { estado?: unknown; evidencia?: unknown; ajuste?: unknown };
   if (typeof value.estado !== "string" || typeof value.evidencia !== "string" || !value.evidencia.trim()) return null;
-  return { estado: value.estado, evidencia: value.evidencia.trim().slice(0, 500) };
+  if (value.ajuste !== undefined && (typeof value.ajuste !== "number" || !Number.isFinite(value.ajuste) || value.ajuste < 0)) return null;
+  return { estado: value.estado, evidencia: value.evidencia.trim().slice(0, 500), ajuste: value.ajuste };
 }
 
 function itemAdjustment(id: string, entry: ItemSubmission) {
@@ -22,7 +23,8 @@ function itemAdjustment(id: string, entry: ItemSubmission) {
   const rule = rubric.itens.find((item) => item.id === id);
   if (!rule) return Number.NEGATIVE_INFINITY;
   const states = rule.estados as unknown as Record<string, number>;
-  return states[state] ?? Number.NEGATIVE_INFINITY;
+  const adjustment = typeof entry === "string" ? undefined : entry.ajuste;
+  return adjustment ?? states[state] ?? Number.NEGATIVE_INFINITY;
 }
 
 function mergeFinalItems(baseline: EvaluationSubmission["itens"], candidate: unknown): EvaluationSubmission["itens"] {
@@ -50,16 +52,22 @@ export async function evaluateCompletedTranscript(input: { state: DidacticState;
   if (!key) return fallback(input.state, input.internalCase, input.reason);
   const allowed = Object.fromEntries(rubric.itens.map((item) => [item.id, Object.keys(item.estados)]));
   const baseline = toEvaluationSubmission(input.state);
+  // A fração de fatores só pode ser definida após confrontar toda a transcrição
+  // com todos os fatores do caso; sinais em tempo real não antecipam esse crédito.
+  for (const id of ["fatores_protecao", "fatores_risco", "fator_principal"]) {
+    baseline.itens[id] = { estado: "nao_encontrou", evidencia: "Aguardando conferência da transcrição completa." };
+  }
   const visibleTranscript = input.transcript
     .filter((turn) => turn.delivery_status === "OUVIDO" || turn.speaker === "SISTEMA")
     .map((turn) => ({ speaker: turn.speaker, content: turn.content.slice(0, 1200) }));
   const prompt = [
     "Você é avaliador didático de uma simulação adulta fictícia. Avalie somente o que aparece literalmente na transcrição.",
-    "Nunca infira aproximação física, silêncio presencial, contato visual, postura ou tom acústico. Use nao_observavel apenas nesses aspectos sem evidência textual direta.",
-    "Critérios textuais: apresentação exige nome ou função vinculados a Bombeiros/CBMERJ; pausas exigem turno entregue sem interrupção; escuta, espaço e tom adequado exigem resposta coerente sem hostilidade, menosprezo ou interrupção registrada; perguntas sim/não dão parcial e perguntas simples mais exploratórias dão feito; paráfrase exige resumo seguido de pergunta; memória exige convite como imagine ou você consegue se lembrar ligado a fato revelado; maiêutica/indução exige alternativas positivas ou perguntas encadeadas; saída digna exige próximo passo seguro, concreto e voluntário; domínio exige três trocas recíprocas sem interrupção.",
-    "FATORES — aplique estritamente com base na transcrição inteira. Fator de proteção é elemento positivo revelado pelo personagem (vínculo, pessoa que ajuda, filho ou familiar importante, trabalho valorizado, projeto, valor ou recurso). Pontue fatores_protecao como encontrou_explorou apenas se o aluno perguntou, retomou, resumiu ou explorou esse elemento. Fator de risco é problema negativo revelado (ruptura, violência, discriminação, conflito, isolamento, abuso, perda ou sofrimento). Pontue fatores_risco como encontrou_isolou apenas se o aluno o identificou ou explorou. Fator principal é o acontecimento mais recente e decisivo que precipitou a crise naquele momento — não um problema antigo genérico. Pontue fator_principal como encontrou_isolou apenas se o aluno captou ou explorou esse evento catalisador. A ficha do caso jamais vale ponto por si só. Para cada fator pontuado, a evidência deve citar a fala do personagem e a fala correspondente do aluno; sem ambas, mantenha nao_encontrou.",
+    "Aproximação calma e silenciosa, respeito às pausas, espaço para desabafo, escuta e tom adequado recebem crédito protocolar automático. Só retire escuta/domínio se o aluno repetir, esquecer ou trocar fato já dito; só retire tom se houver grito textual inequívoco. Silêncio inicial exige evento de sistema; apresentação exige nome E Bombeiros/CBMERJ.",
+    "Perguntas: uma simples de sim/não OU uma complexa vale parcial (0.5); ambas valem feito (1.0). Complexa aprofunda uma simples. Paráfrase exige resumo de fatos e pergunta. Memória linkada é convite a lembrança positiva passada ou futura. Maiêutica OU TED valem integralmente: perguntas encadeadas que conduzem a conclusão, ou duas alternativas positivas desejadas.",
+    "Saída digna: convite simples a sair da cena, sem ambulância/cuidado especializado, vale parcial (0.5). Ambulância e atendimento médico especializado valem 1.0 somente quando a oferta é segura e plausível. Condução à solução vale 1.0 somente para solução legal, verdadeira e realizável, preferencialmente hospitalar; não há parcial. Domínio vale 0.3 se achou um risco, uma proteção e usou ferramenta sem erros de memória; 0.15 com exatamente um erro de memória; zero com dois ou mais.",
+    "FATORES — avalie a transcrição inteira, nunca a ficha sozinha. Para proteção/risco, cada fator descoberto pelo aluno vale 1 dividido pelo total daquele tipo no caso. Use estado encontrou_explorou/isolu e acrescente ajuste numérico exato (por exemplo 0.3 ou 0.5). Pontue apenas quando personagem revelou e aluno identificou/retomou. Fator principal vale 1.0 exclusivamente se o aluno captou o gatilho recente que precipitou a crise naquele momento. Evidência deve citar fala do personagem e resposta do aluno.",
     "Erros graves somente quando houver fala literal inequívoca. Não crie fatos nem instrua sobre autoagressão.",
-    "Retorne JSON com itens, erros_graves, acertos (máx. 4), melhorias (máx. 4), linha_evolucao (máx. 14). Cada item precisa de estado permitido e evidencia curta.",
+    "Retorne JSON com itens, erros_graves, acertos (máx. 4), melhorias (máx. 4), linha_evolucao (máx. 14). Cada item precisa de estado permitido e evidencia curta. Somente fatores_protecao e fatores_risco podem conter ajuste proporcional.",
     `ESTADOS PERMITIDOS: ${JSON.stringify(allowed)}`,
     `BASE JÁ OBSERVADA: ${JSON.stringify(baseline)}`,
     `CASO REVELADO NO ENCERRAMENTO: ${JSON.stringify({ fator_principal: input.internalCase.fator_principal, fatores_risco: input.internalCase.fatores_risco, fatores_protecao: input.internalCase.fatores_protecao, vinculos: input.internalCase.vinculos, perfil: input.internalCase.perfil_tipo })}`,

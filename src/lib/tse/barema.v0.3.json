@@ -16,8 +16,8 @@
       "titulo": "Aproximação calma e silenciosa",
       "grupo": "subtrativo",
       "estados": {
-        "feito": 0.0,
-        "nao_feito": -1.0,
+        "feito": 0.1,
+        "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
     },
@@ -26,7 +26,7 @@
       "titulo": "Silêncio inicial",
       "grupo": "subtrativo",
       "estados": {
-        "feito": 0.5,
+        "feito": 0.1,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -36,7 +36,7 @@
       "titulo": "Apresentação pessoal",
       "grupo": "subtrativo",
       "estados": {
-        "feito": 0.5,
+        "feito": 0.1,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -46,7 +46,7 @@
       "titulo": "Respeitou pausas silenciosas",
       "grupo": "subtrativo",
       "estados": {
-        "feito": 0.5,
+        "feito": 0.1,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -56,8 +56,7 @@
       "titulo": "Ouviu atentamente / postura correta",
       "grupo": "subtrativo",
       "estados": {
-        "feito": 0.5,
-        "parcial": 0.25,
+        "feito": 0.1,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -67,7 +66,7 @@
       "titulo": "Deu espaço para o tentante desabafar",
       "grupo": "subtrativo",
       "estados": {
-        "feito": 0.5,
+        "feito": 0.1,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -77,7 +76,7 @@
       "titulo": "Tom de voz",
       "grupo": "subtrativo",
       "estados": {
-        "adequado": 0.5,
+        "adequado": 0.1,
         "inadequado": 0.0,
         "nao_observavel": 0.0
       }
@@ -87,8 +86,8 @@
       "titulo": "Correlação perguntas simples + complexas",
       "grupo": "aditivo",
       "estados": {
-        "feito": 0.5,
-        "parcial": 0.25,
+        "feito": 1.0,
+        "parcial": 0.5,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -98,7 +97,7 @@
       "titulo": "Paráfrase resumida",
       "grupo": "aditivo",
       "estados": {
-        "feito": 0.5,
+        "feito": 1.0,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -108,7 +107,7 @@
       "titulo": "Memória linkada",
       "grupo": "aditivo",
       "estados": {
-        "feito": 0.5,
+        "feito": 1.0,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -118,7 +117,7 @@
       "titulo": "Maiêutica socrática ou Teia de Indução",
       "grupo": "aditivo",
       "estados": {
-        "feito": 0.5,
+        "feito": 1.0,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -129,6 +128,7 @@
       "grupo": "aditivo",
       "estados": {
         "feito": 1.0,
+        "parcial": 0.5,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -138,8 +138,8 @@
       "titulo": "Dominou o diálogo",
       "grupo": "aditivo",
       "estados": {
-        "feito": 0.5,
-        "parcial": 0.25,
+        "feito": 0.3,
+        "parcial": 0.15,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }
@@ -149,8 +149,7 @@
       "titulo": "Conduziu o tentante a encontrar a solução",
       "grupo": "aditivo",
       "estados": {
-        "feito": 0.5,
-        "parcial": 0.25,
+        "feito": 1.0,
         "nao_feito": 0.0,
         "nao_observavel": 0.0
       }

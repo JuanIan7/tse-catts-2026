@@ -5,7 +5,8 @@ import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation,
 import { detectSevereOccurrences, isPlainEndPhrase } from "./severe-occurrence";
 import { openAIErrorMessage } from "./openai-error";
 import type { Difficulty, InternalCase } from "./session-case";
-import { isActiveSessionExpired, remainingSessionMs, type ActiveClock, type ClockActivity } from "./active-session-clock";
+import { activeElapsedMs, isActiveSessionExpired, remainingSessionMs, type ActiveClock, type ClockActivity } from "./active-session-clock";
+import { sessionDurationMs } from "./session-timer";
 import { evaluateCompletedTranscript } from "./final-evaluation";
 import { normalizePublicBriefing } from "./briefing";
 
@@ -80,6 +81,17 @@ async function finalCalculation(session: SessionRecord, reason: string, partial:
   ]);
   if (!secret || !publicSession) return calculateDidacticEvaluation(readDidacticState(session.didactic_state));
   return evaluateCompletedTranscript({ state: readDidacticState(session.didactic_state), internalCase: secret.internal_case as InternalCase, briefing: normalizePublicBriefing(publicSession.public_briefing, session.difficulty), transcript: transcript ?? [], partial, reason });
+}
+
+function positiveItem(state: ReturnType<typeof readDidacticState>, id: string) {
+  const status = state.itens[id]?.estado;
+  return status === "feito" || status === "adequado" || status === "encontrou_explorou" || status === "encontrou_isolou";
+}
+
+function mayAcceptDignifiedExit(session: SessionRecord, state: ReturnType<typeof readDidacticState>) {
+  const tools = ["parafrase_resumida", "memoria_linkada", "maieutica_ou_teia", "desistencia_ou_saida_digna"];
+  const hasRequirements = positiveItem(state, "fatores_protecao") && positiveItem(state, "fatores_risco") && tools.filter((id) => positiveItem(state, id)).length >= 2;
+  return hasRequirements && activeElapsedMs(session) >= sessionDurationMs[session.difficulty] * 0.7;
 }
 
 async function finalizeSevereOccurrenceLimit(input: { userId: string; sessionId: string; occurrences: number }) {
@@ -182,7 +194,7 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
   // A resposta precisa existir antes de registrar a fala. Uma falha da IA não pode deixar turnos órfãos.
   let character;
   try {
-    character = await respondAsCharacter(secret.internal_case as InternalCase, [...history, { speaker: "ALUNO", content }], didacticState);
+    character = await respondAsCharacter(secret.internal_case as InternalCase, [...history, { speaker: "ALUNO", content }], didacticState, session.difficulty);
   } catch (cause) {
     console.error("Falha ao gerar resposta do tentante", { status: (cause as { status?: number })?.status, code: (cause as { code?: string })?.code });
     throw new Error(openAIErrorMessage(cause, "gerar a resposta do tentante"));
@@ -190,19 +202,27 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
   await transitionToActive(session);
   await appendTranscript(input.sessionId, "ALUNO", content, input.source, "OUVIDO");
   const deliveryStatus: DeliveryStatus = input.source === "VOZ" ? "PENDENTE" : "OUVIDO";
-  const acceptsExit = character.aceita_saida_digna && !isPlainEndPhrase(content);
+  const preliminaryState = applyDidacticSignals(didacticState, {
+    rapport_delta: character.rapport_delta,
+    categorias_reveladas: character.categorias_reveladas,
+    evidencias: character.evidencias,
+    erros_graves: [],
+    acceptsExit: false,
+  });
+  const acceptsExit = character.aceita_saida_digna && !isPlainEndPhrase(content) && mayAcceptDignifiedExit(session, preliminaryState);
   const deterministicErrors = detectSevereOccurrences(content);
   // Deduções graves precisam ser determinísticas e vinculadas à fala literal
   // do aluno. A leitura probabilística do personagem não pode retirar pontos.
   const errorSignals = deterministicErrors;
   const characterTurn = await appendTranscript(input.sessionId, "PERSONAGEM", character.fala, "SISTEMA", deliveryStatus, { finish_after_delivery: acceptsExit });
-  const nextState = applyDidacticSignals(didacticState, {
-    rapport_delta: character.rapport_delta,
-    categorias_reveladas: character.categorias_reveladas,
-    evidencias: character.evidencias,
+  const nextState = applyDidacticSignals(preliminaryState, {
+    rapport_delta: 0,
+    categorias_reveladas: [],
+    evidencias: [],
     erros_graves: errorSignals,
     acceptsExit: input.source === "TEXTO" && acceptsExit,
   });
+  nextState.turnos -= 1;
   await persistDidacticState(session, nextState);
   const occurrences = seriousOccurrenceCount(nextState);
   if (occurrences > 5) {

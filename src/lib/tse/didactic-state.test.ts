@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyDidacticSignals, calculateDidacticEvaluation, createDidacticState, readDidacticState, registerInitialSilence, seriousOccurrenceCount, toEvaluationSubmission } from "./didactic-state";
 
 describe("estado didático no servidor", () => {
-  it("não presume conduta física e só acumula evidência compatível com o barema", () => {
+  it("aplica os créditos automáticos do diálogo e só acumula evidência compatível com o barema", () => {
     const state = applyDidacticSignals(createDidacticState(), {
       rapport_delta: 1,
       categorias_reveladas: ["VINCULO"],
@@ -17,9 +17,9 @@ describe("estado didático no servidor", () => {
     const submission = toEvaluationSubmission(state);
     expect(submission.itens.apresentacao_pessoal).toMatchObject({ estado: "feito" });
     expect(submission.itens.fatores_protecao).toMatchObject({ estado: "encontrou_explorou" });
-    expect(submission.itens.aproximacao_calma_silenciosa).toMatchObject({ estado: "nao_observavel" });
-    expect(calculateDidacticEvaluation(state).cobertura.avaliados).toBe(16);
-    expect(calculateDidacticEvaluation(createDidacticState()).nota_final).toBe(0);
+    expect(submission.itens.aproximacao_calma_silenciosa).toMatchObject({ estado: "feito" });
+    expect(calculateDidacticEvaluation(state).cobertura.avaliados).toBe(17);
+    expect(calculateDidacticEvaluation(createDidacticState()).nota_final).toBe(0.5);
   });
 
   it("descarta estado adulterado e mantém a forma pública sem ficha interna", () => {
@@ -46,7 +46,7 @@ describe("estado didático no servidor", () => {
     const first = registerInitialSilence(createDidacticState());
     expect(first.recorded).toBe(true);
     expect(toEvaluationSubmission(first.state).itens.silencio_inicial).toMatchObject({ estado: "feito" });
-    expect(calculateDidacticEvaluation(first.state).nota_final).toBe(0.5);
+    expect(calculateDidacticEvaluation(first.state).nota_final).toBe(0.6);
     expect(registerInitialSilence(first.state).recorded).toBe(false);
     const afterTurn = applyDidacticSignals(first.state, { rapport_delta: 0, categorias_reveladas: [], evidencias: [], erros_graves: [], acceptsExit: false });
     expect(registerInitialSilence(afterTurn).recorded).toBe(false);

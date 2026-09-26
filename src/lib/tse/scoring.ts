@@ -3,7 +3,7 @@ import rubric from "./barema.v0.3.json";
 type RubricItem = (typeof rubric.itens)[number];
 type ErrorRule = (typeof rubric.erros_graves)[number];
 
-export type ItemSubmission = { estado: string; evidencia: string } | string;
+export type ItemSubmission = { estado: string; evidencia: string; ajuste?: number } | string;
 export type ErrorSubmission = { aplicado: boolean; evidencia: string } | boolean;
 
 export type EvaluationSubmission = {
@@ -12,12 +12,12 @@ export type EvaluationSubmission = {
   erros_graves?: Record<string, ErrorSubmission>;
 };
 
-function itemEntry(entry: ItemSubmission): { estado: string; evidencia: string } {
+function itemEntry(entry: ItemSubmission): { estado: string; evidencia: string; ajuste?: number } {
   if (typeof entry === "string") return { estado: entry, evidencia: "" };
-  if (typeof entry.estado !== "string" || typeof entry.evidencia !== "string") {
+  if (typeof entry.estado !== "string" || typeof entry.evidencia !== "string" || (entry.ajuste !== undefined && (!Number.isFinite(entry.ajuste) || entry.ajuste < 0))) {
     throw new Error("Cada item precisa de estado textual e evidência textual.");
   }
-  return { estado: entry.estado, evidencia: entry.evidencia.trim() };
+  return { estado: entry.estado, evidencia: entry.evidencia.trim(), ajuste: entry.ajuste };
 }
 
 function errorEntry(entry: ErrorSubmission | undefined): { aplicado: boolean; evidencia: string } {
@@ -43,10 +43,15 @@ export function calculateEvaluation(evaluation: EvaluationSubmission) {
   let itemTotal = 0;
   let coverage = 0;
   const itens = rubric.itens.map((item: RubricItem) => {
-    const { estado, evidencia } = itemEntry(evaluation.itens[item.id]);
-    const adjustment = item.estados[estado as keyof typeof item.estados];
-    if (adjustment === undefined) {
+    const { estado, evidencia, ajuste: submittedAdjustment } = itemEntry(evaluation.itens[item.id]);
+    const stateAdjustment = item.estados[estado as keyof typeof item.estados];
+    if (stateAdjustment === undefined) {
       throw new Error(`Estado inválido em ${item.id}: ${estado}.`);
+    }
+    const supportsFraction = item.id === "fatores_protecao" || item.id === "fatores_risco";
+    const adjustment = submittedAdjustment === undefined ? stateAdjustment : submittedAdjustment;
+    if (submittedAdjustment !== undefined && (!supportsFraction || submittedAdjustment > stateAdjustment)) {
+      throw new Error(`Ajuste proporcional inválido em ${item.id}.`);
     }
     if (!evidencia) throw new Error(`O item ${item.id} precisa de evidência ou justificativa de observabilidade.`);
     itemTotal += adjustment;

@@ -123,8 +123,16 @@ export function toEvaluationSubmission(state: DidacticState): EvaluationSubmissi
     parcial: !safe.saida_digna_aceita,
     itens: Object.fromEntries(rubric.itens.map((item) => {
       const entry = safe.itens[item.id];
-      const defaultState = item.id === "fatores_protecao" || item.id === "fatores_risco" || item.id === "fator_principal" ? "nao_encontrou" : dialogueObservableItems.has(item.id) ? "nao_feito" : "nao_observavel";
-      const defaultEvidence = defaultState !== "nao_observavel" ? "Nenhuma evidência desta conduta foi registrada na conversa." : "Não observável nesta simulação de diálogo.";
+      const automaticStates: Record<string, string> = {
+        aproximacao_calma_silenciosa: "feito",
+        respeitou_pausas_silenciosas: "feito",
+        ouviu_atentamente_postura: "feito",
+        espaco_para_desabafo: "feito",
+        tom_de_voz: "adequado",
+      };
+      const defaultState = automaticStates[item.id]
+        ?? (item.id === "fatores_protecao" || item.id === "fatores_risco" || item.id === "fator_principal" ? "nao_encontrou" : dialogueObservableItems.has(item.id) ? "nao_feito" : "nao_observavel");
+      const defaultEvidence = automaticStates[item.id] ? "Crédito protocolar desta modalidade de diálogo; sem ocorrência contrária registrada." : defaultState !== "nao_observavel" ? "Nenhuma evidência desta conduta foi registrada na conversa." : "Não observável nesta simulação de diálogo.";
       return [item.id, { estado: entry?.estado ?? defaultState, evidencia: entry?.evidencias.join(" | ") || defaultEvidence }];
     })),
     erros_graves: Object.fromEntries(rubric.erros_graves.map((error) => {
