@@ -1,6 +1,7 @@
 "use client";
 
 import { jsPDF } from "jspdf";
+import { annotationMeta, needsReviewPdfPageBreak, type ReviewAnnotation } from "@/lib/admin/evaluation-review";
 
 type TranscriptTurn = {
   speaker: "ALUNO" | "PERSONAGEM" | "NARRADOR" | "SISTEMA";
@@ -35,6 +36,7 @@ type Props = {
   difficulty: string;
   transcript: TranscriptTurn[];
   evaluation: Evaluation;
+  review?: { annotations: ReviewAnnotation[]; generalNote: string | null };
 };
 
 const speakerLabel: Record<TranscriptTurn["speaker"], string> = {
@@ -48,7 +50,7 @@ function fileName(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
 }
 
-export function ExportSessionPdf({ title, difficulty, transcript, evaluation }: Props) {
+export function ExportSessionPdf({ title, difficulty, transcript, evaluation, review }: Props) {
   function exportPdf() {
     const pdf = new jsPDF({ unit: "mm", format: "a4" });
     const margin = 16;
@@ -161,9 +163,28 @@ export function ExportSessionPdf({ title, difficulty, transcript, evaluation }: 
       pdf.setTextColor(0);
     }
 
+    if (review) {
+      newPage();
+      heading("Marcações administrativas", 18);
+      text("Estas observações são internas e não alteram a avaliação automática do aluno.", 10);
+      if (review.annotations.length === 0) text("Nenhuma marcação foi salva.", 10);
+      review.annotations.forEach((annotation) => {
+        const meta = annotationMeta[annotation.annotationType];
+        if (needsReviewPdfPageBreak(y, 18, bottom)) newPage();
+        pdf.setFillColor(meta.color);
+        pdf.rect(margin, y - 3, 4, 4, "F");
+        text(meta.label, 10, 6);
+        text(`“${annotation.selectedText}”`, 9, 6);
+        if (annotation.note) text(annotation.note, 8, 10);
+        y += 2;
+      });
+      heading("Observação geral", 13);
+      text(review.generalNote || "Nenhuma observação geral salva.", 10);
+    }
+
     addFooter();
-    pdf.save(`${fileName(title) || "abordagem"}-transcricao.pdf`);
+    pdf.save(`${fileName(title) || "abordagem"}-${review ? "revisao-administrativa" : "transcricao"}.pdf`);
   }
 
-  return <button type="button" className="button-link" onClick={exportPdf}>Exportar conversa em PDF</button>;
+  return <button type="button" className="button-link" onClick={exportPdf}>{review ? "Exportar PDF da revisão" : "Exportar conversa em PDF"}</button>;
 }

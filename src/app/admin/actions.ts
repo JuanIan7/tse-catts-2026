@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/authorization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isAnnotationType, rangesOverlap, selectedTextForRange } from "@/lib/admin/evaluation-review";
 
 const allowed = new Set(["APROVADO", "RECUSADO", "BLOQUEADO"]);
 const passwordConfirmationUrl = async () => `${(await headers()).get("origin") ?? "http://localhost:3000"}/auth/confirm?next=/password/change`;
@@ -44,5 +45,82 @@ export async function reviewAccess(formData: FormData) {
   if (profileError) throw new Error("Não foi possível atualizar o acesso.");
   const { error: requestError } = await admin.from("access_requests").update({ decision, reviewed_at: new Date().toISOString(), reviewed_by: user.id }).eq("user_id", userId);
   if (requestError) throw new Error("O histórico não foi atualizado.");
+  revalidatePath("/admin");
+}
+
+const required = (formData: FormData, name: string) => {
+  const value = String(formData.get(name) ?? "").trim();
+  if (!value) throw new Error("Dados de revisão incompletos.");
+  return value;
+};
+
+const requireEvaluatedSession = async (supabase: Awaited<ReturnType<typeof requireAdmin>>["supabase"], sessionId: string) => {
+  const { data, error } = await supabase.from("evaluations").select("session_id").eq("session_id", sessionId).maybeSingle();
+  if (error || !data) throw new Error("Relatório de avaliação inválido.");
+};
+
+export async function saveEvaluationAnnotation(formData: FormData) {
+  const { user, supabase } = await requireAdmin();
+  const sessionId = required(formData, "sessionId");
+  const transcriptId = required(formData, "transcriptId");
+  const annotationType = required(formData, "annotationType");
+  const startOffset = Number(formData.get("startOffset"));
+  const endOffset = Number(formData.get("endOffset"));
+  const submittedText = required(formData, "selectedText");
+  const note = String(formData.get("note") ?? "").trim();
+  if (!isAnnotationType(annotationType) || note.length > 1500) throw new Error("Marcação inválida.");
+  await requireEvaluatedSession(supabase, sessionId);
+
+  const { data: turn, error: turnError } = await supabase
+    .from("training_transcripts")
+    .select("id, session_id, content")
+    .eq("id", transcriptId)
+    .eq("session_id", sessionId)
+    .maybeSingle();
+  if (turnError || !turn) throw new Error("Fala da transcrição inválida.");
+  const exactText = selectedTextForRange(turn.content, startOffset, endOffset);
+  if (!exactText || exactText !== submittedText) throw new Error("O trecho selecionado não corresponde à transcrição.");
+
+  const { data: saved, error: savedError } = await supabase
+    .from("admin_evaluation_annotations")
+    .select("start_offset, end_offset")
+    .eq("transcript_id", transcriptId);
+  if (savedError) throw new Error("Não foi possível validar as marcações existentes.");
+  if ((saved ?? []).some((item) => rangesOverlap(startOffset, endOffset, item.start_offset, item.end_offset))) {
+    throw new Error("Esse trecho já possui uma marcação sobreposta. Remova-a antes de criar outra.");
+  }
+
+  const { error } = await supabase.from("admin_evaluation_annotations").insert({
+    session_id: sessionId,
+    transcript_id: transcriptId,
+    annotation_type: annotationType,
+    start_offset: startOffset,
+    end_offset: endOffset,
+    selected_text: exactText,
+    note: note || null,
+    created_by: user.id,
+  });
+  if (error) throw new Error("Não foi possível salvar a marcação.");
+  revalidatePath("/admin");
+}
+
+export async function deleteEvaluationAnnotation(formData: FormData) {
+  const { supabase } = await requireAdmin();
+  const sessionId = required(formData, "sessionId");
+  const annotationId = required(formData, "annotationId");
+  await requireEvaluatedSession(supabase, sessionId);
+  const { error } = await supabase.from("admin_evaluation_annotations").delete().eq("id", annotationId).eq("session_id", sessionId);
+  if (error) throw new Error("Não foi possível remover a marcação.");
+  revalidatePath("/admin");
+}
+
+export async function saveEvaluationReviewNote(formData: FormData) {
+  const { user, supabase } = await requireAdmin();
+  const sessionId = required(formData, "sessionId");
+  const note = required(formData, "note");
+  if (note.length > 3000) throw new Error("A observação geral é longa demais.");
+  await requireEvaluatedSession(supabase, sessionId);
+  const { error } = await supabase.from("admin_evaluation_notes").upsert({ session_id: sessionId, note, updated_by: user.id }, { onConflict: "session_id" });
+  if (error) throw new Error("Não foi possível salvar a observação geral.");
   revalidatePath("/admin");
 }
