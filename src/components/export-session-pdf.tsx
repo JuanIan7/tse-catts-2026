@@ -37,6 +37,7 @@ type Props = {
   transcript: TranscriptTurn[];
   evaluation: Evaluation;
   review?: { annotations: ReviewAnnotation[]; generalNote: string | null };
+  disabled?: boolean;
 };
 
 const speakerLabel: Record<TranscriptTurn["speaker"], string> = {
@@ -50,7 +51,7 @@ function fileName(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
 }
 
-export function ExportSessionPdf({ title, difficulty, transcript, evaluation, review }: Props) {
+export function ExportSessionPdf({ title, difficulty, transcript, evaluation, review, disabled = false }: Props) {
   function exportPdf() {
     const pdf = new jsPDF({ unit: "mm", format: "a4" });
     const margin = 16;
@@ -186,5 +187,5 @@ export function ExportSessionPdf({ title, difficulty, transcript, evaluation, re
     pdf.save(`${fileName(title) || "abordagem"}-${review ? "revisao-administrativa" : "transcricao"}.pdf`);
   }
 
-  return <button type="button" className="button-link" onClick={exportPdf}>{review ? "Exportar PDF da revisão" : "Exportar conversa em PDF"}</button>;
+  return <button type="button" className="button-link" onClick={exportPdf} disabled={disabled}>{disabled ? "Salvando marcação..." : review ? "Exportar PDF da revisão" : "Exportar conversa em PDF"}</button>;
 }
