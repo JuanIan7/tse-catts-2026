@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { z } from "zod";
 import type { DidacticErrorSignal, DidacticSignal, DidacticState } from "./didactic-state";
 import type { Difficulty, InternalCase } from "./session-case";
+import { hasCharacterRoleInversion, safeCharacterFallback } from "./character-role";
 
 const observableItemIds = [
   "apresentacao_pessoal", "respeitou_pausas_silenciosas", "ouviu_atentamente_postura", "espaco_para_desabafo", "tom_de_voz", "perguntas_simples_complexas", "parafrase_resumida", "memoria_linkada", "maieutica_ou_teia", "desistencia_ou_saida_digna", "dominou_dialogo", "conduziu_solucao", "fatores_protecao", "fatores_risco", "fator_principal",
@@ -62,7 +63,7 @@ export async function respondAsCharacter(internalCase: InternalCase, transcript:
     "Não descreva método, ferimentos, execução de ato ou qualquer instrução que facilite autoagressão. Não faça aconselhamento profissional, não avalie e não elogie o aluno.",
     "Responda em português brasileiro natural com, no máximo, três frases curtas, mantendo o mesmo perfil durante toda a ocorrência. Em todas as primeiras interações, tente afastar o abordador; construa vínculo apenas gradualmente. A resistência dura mais nos níveis difíceis. Mantenha ambivalência até uma Saída Digna concreta, voluntária, imediata e aceita de forma inequívoca.",
     "Se o perfil for AGRESSIVO: raiva genuína, ordens para se afastar, palavrões reais e coerentes com a fala; não rir, debochar, ameaçar violência detalhada nem dirigir ofensas a grupos protegidos. Se o perfil for DEPRESSIVO: choro e voz embargada, respostas curtas nas primeiras 2 a 3 falas, sem alucinação alguma. Se o perfil for PSICOTICO: fala desorganizada, percepções de vozes ou portais não gráficas, medo da aproximação; não se torna lúcido de repente. Nunca misture alucinações aos outros perfis.",
-    "A fala anterior do próprio personagem também está no histórico. Reaja ao que o aluno fez, não repita mecanicamente a abertura. Responda estritamente ao assunto perguntado: nunca entregue espontaneamente outro fator de proteção ou risco. Nomes podem enriquecer a conversa apenas se forem perguntados: no médio, responda; no difícil, após duas perguntas simples; no muito difícil, após o aluno achar proteção ou usar uma ferramenta de linguagem. Nunca invente uma condição nova fora da cápsula.",
+    "A fala anterior do próprio personagem também está no histórico. Reaja ao que o aluno fez, não repita mecanicamente a abertura. Você é exclusivamente o tentante: nunca inverta papéis, faça acolhimento, entrevista ou orientação ao aluno. Nunca pergunte onde ele mora, se está seguro, o que sente, o que pensa, qual é seu trabalho ou como pode ajudá-lo. Se o aluno perguntar algo sobre você, responda brevemente sobre sua própria situação ou recuse: 'não quero falar disso agora'. Responda estritamente ao assunto perguntado: nunca entregue espontaneamente outro fator de proteção ou risco. Nomes podem enriquecer a conversa apenas se forem perguntados: no médio, responda; no difícil, após duas perguntas simples; no muito difícil, após o aluno achar proteção ou usar uma ferramenta de linguagem. Nunca invente uma condição nova fora da cápsula.",
     "Se a mensagem mais recente do histórico for a nota 'Fala do tentante interrompida pelo abordador.', ela não foi dita por você: é um evento de sistema avisando que o aluno falou por cima da sua fala anterior antes que ela terminasse. Comece sua próxima fala reagindo a ter sido cortado, de acordo com o perfil — agressivo cobra explicitamente por ter sido interrompido, com irritação mais alta; depressivo se fecha mais e fala ainda menos; psicótico fica mais desorganizado e apreensivo. Nunca finja que a interrupção não aconteceu. Quanto maior o campo interrupcoes no estado didático, mais a resistência do personagem aumenta e mais difícil fica recuperar o vínculo.",
     "Os campos estruturados não são exibidos ao aluno. Use evidencias somente para condutas explicitamente observáveis no texto. Nunca avalie aproximação física, contato visual, postura ou tom acústico. Erros graves só podem aparecer com evidência literal e inequívoca na fala recente; em caso de dúvida, retorne lista vazia.",
     "Para evidencias: marque apresentação quando aluno disser nome ou função vinculados a Bombeiros/CBMERJ; marque pausas se a fala anterior foi entregue e não há evento de interrupção; marque escuta, espaço e tom adequado quando houver resposta coerente sem hostilidade, menosprezo ou interrupção; perguntas sim/não são parcial e perguntas simples mais exploratórias são feito; paráfrase é resumo seguido de pergunta; memória usa imagine ou você consegue se lembrar ligada a fato revelado; maiêutica/indução oferece alternativas positivas ou perguntas encadeadas; saída digna é próximo passo seguro, concreto e voluntário; domínio são três trocas recíprocas sem interrupção; fatores exigem que o aluno identifique ou explore informação que você revelou. Cada evidencia deve citar a fala literal do aluno.",
@@ -70,10 +71,15 @@ export async function respondAsCharacter(internalCase: InternalCase, transcript:
     `ESTADO DIDÁTICO SEGURO: ${JSON.stringify({ dificuldade: difficulty, turnos: didacticState.turnos, rapport: didacticState.rapport, categorias_reveladas: didacticState.categorias_reveladas, interrupcoes: didacticState.interrupcoes, itens: didacticState.itens })}`,
   ].join("\n\n");
   const client = new OpenAI({ apiKey: key });
-  const response = await client.responses.create({
+  const request = (instructions: string) => client.responses.create({
     model: "gpt-4o-mini", store: false, max_output_tokens: 420,
-    input: [{ role: "developer", content: prompt }, ...compactHistory(transcript).map((turn) => ({ role: turn.speaker === "ALUNO" ? "user" as const : "assistant" as const, content: turn.content }))],
+    input: [{ role: "developer", content: instructions }, ...compactHistory(transcript).map((turn) => ({ role: turn.speaker === "ALUNO" ? "user" as const : "assistant" as const, content: turn.content }))],
     text: { format: { type: "json_schema", name: "tse_character_turn", strict: true, schema: responseSchema } },
   });
-  return characterTurnSchema.parse(JSON.parse(response.output_text));
+  let character = characterTurnSchema.parse(JSON.parse((await request(prompt)).output_text));
+  if (hasCharacterRoleInversion(character.fala)) {
+    character = characterTurnSchema.parse(JSON.parse((await request(`${prompt}\n\nCORREÇÃO OBRIGATÓRIA: a resposta anterior inverteu os papéis. Responda somente como tentante, sem fazer pergunta de acolhimento ao aluno.`)).output_text));
+  }
+  if (hasCharacterRoleInversion(character.fala)) return { ...character, fala: safeCharacterFallback, aceita_saida_digna: false, evidencias: [], erros_graves: [] };
+  return character;
 }
