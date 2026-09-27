@@ -47,6 +47,8 @@ Tipos, cores e finalidade:
 | `MEMORIA_LINKADA` | azul | lembrança positiva de passado ou futuro |
 | `MAIEUTICA_TED` | roxo | maiêutica socrática ou técnica/teia de indução |
 | `SAIDA_DIGNA` | dourado | convite seguro de saída/atendimento |
+| `PERGUNTA_SIMPLES` | amarelo | pergunta que admite resposta direta, como sim ou não |
+| `PERGUNTA_COMPLEXA` | azul-petróleo | aprofundamento de uma informação já obtida |
 | `FATOR_PROTECAO` | verde | fator protetivo identificado ou explorado |
 | `FATOR_RISCO` | vermelho | fator de risco identificado ou explorado |
 | `FATOR_PRINCIPAL` | laranja | evento precipitador principal |
