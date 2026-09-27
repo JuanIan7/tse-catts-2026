@@ -62,6 +62,8 @@ A seção terá uma lista compacta dos cinco relatórios. Ao escolher um, abre-s
 
 Restringir a seleção a uma fala evita marcações frágeis entre blocos ou que mudariam quando o texto for renderizado em outro dispositivo. Ao salvar, o painel confirma visualmente a marcação. Marcações existentes podem ser removidas pelo administrador para corrigir uma análise. A observação geral é salva separadamente, sem exigir seleção.
 
+Uma legenda fixa, visível acima da transcrição, mostra cada cor acompanhada do nome da ferramenta. Os botões da barra exibem o nome completo e uma descrição curta ao toque ou ao passar o cursor; após escolher uma cor, o painel repete o nome da ferramenta selecionada antes de salvar. Cada trecho já salvo também traz um selo textual com sua categoria, além do realce. Portanto, cor alguma é a única forma de identificar uma marcação.
+
 O botão **Exportar PDF da revisão** reutiliza a geração de PDF existente. O PDF inclui a transcrição e uma página final com nota, itens descontados e uma seção **Marcações administrativas**, listando tipo, cor, trecho e observação. O PDF regular que o aluno já baixa não é modificado.
 
 ## Fluxo do servidor
