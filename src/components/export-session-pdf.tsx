@@ -4,6 +4,7 @@ import { jsPDF } from "jspdf";
 import { annotationMeta, needsReviewPdfPageBreak, type ReviewAnnotation } from "@/lib/admin/evaluation-review";
 
 type TranscriptTurn = {
+  id?: string;
   speaker: "ALUNO" | "PERSONAGEM" | "NARRADOR" | "SISTEMA";
   content: string;
 };
@@ -98,10 +99,17 @@ export function ExportSessionPdf({ title, difficulty, transcript, evaluation, re
       text("Não houve falas confirmadas nesta simulação.");
     } else {
       transcript.forEach((turn) => {
+        const marks = review?.annotations.filter((annotation) => annotation.transcriptId === turn.id) ?? [];
+        const primary = marks[0] ? annotationMeta[marks[0].annotationType] : null;
+        if (primary) {
+          pdf.setFillColor(primary.color);
+          pdf.roundedRect(margin - 2, y - 4, width + 4, 8, 1.5, 1.5, "F");
+        }
         pdf.setFont("helvetica", "bold");
         text(speakerLabel[turn.speaker], 10);
         pdf.setFont("helvetica", "normal");
         text(turn.content, 10, 4);
+        if (marks.length) text(`Marcações: ${marks.map((mark) => annotationMeta[mark.annotationType].label).join(" · ")}`, 8, 4);
         y += 1;
       });
     }

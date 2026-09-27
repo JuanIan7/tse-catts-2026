@@ -23,6 +23,26 @@ describe("ferramentas de diálogo", () => {
     expect(tools.teia).toBeNull();
   });
 
+  it("não concede memória ou maiêutica sem ligação verificável ao diálogo", () => {
+    const tools = detectDialogueTools([{ speaker: "PERSONAGEM", content: "Estou muito cansado." }, { speaker: "ALUNO", content: "Você consegue se lembrar de uma viagem qualquer?" }, { speaker: "ALUNO", content: "Então quer dizer que você conhece advogados?" }]);
+    expect(tools.memoria).toBeNull();
+    expect(tools.teia).toBeNull();
+  });
+
+  it("exige memória positiva e sequência para maiêutica", () => {
+    const memory = detectDialogueTools([{ speaker: "PERSONAGEM", content: "Estou cansado." }, { speaker: "ALUNO", content: "Você se lembra de quando ficou cansado?" }]);
+    const maieutic = detectDialogueTools([{ speaker: "PERSONAGEM", content: "Tenho medo de procurar ajuda." }, { speaker: "ALUNO", content: "Você conhece alguém que já procurou ajuda?" }]);
+    expect(memory.memoria).toBeNull();
+    expect(maieutic.teia).toBeNull();
+  });
+
+  it("não aceita futuro negativo ou perguntas sem encadeamento como ferramentas", () => {
+    const memory = detectDialogueTools([{ speaker: "PERSONAGEM", content: "Eu me sinto sozinho." }, { speaker: "ALUNO", content: "Imagine você sozinho para sempre?" }]);
+    const maieutic = detectDialogueTools([{ speaker: "PERSONAGEM", content: "Tenho medo de procurar ajuda." }, { speaker: "ALUNO", content: "Como você dormiu?" }, { speaker: "ALUNO", content: "Você conhece alguém que procurou ajuda?" }]);
+    expect(memory.memoria).toBeNull();
+    expect(maieutic.teia).toBeNull();
+  });
+
   it("detecta pergunta repetida e troca explícita de nome", () => {
     expect(hasDialogueMemoryError([{ speaker: "ALUNO", content: "Qual é o seu trabalho?" }, { speaker: "ALUNO", content: "Qual é o seu trabalho?" }])).toBe(true);
     expect(hasDialogueMemoryError([{ speaker: "PERSONAGEM", content: "Meu nome é Igor." }, { speaker: "ALUNO", content: "Seu nome é Carlos, certo?" }])).toBe(true);

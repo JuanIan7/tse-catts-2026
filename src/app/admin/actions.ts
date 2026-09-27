@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/authorization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { isAnnotationType, rangesOverlap, selectedTextForRange } from "@/lib/admin/evaluation-review";
+import { isAnnotationType, selectedTextForRange } from "@/lib/admin/evaluation-review";
 
 const allowed = new Set(["APROVADO", "RECUSADO", "BLOQUEADO"]);
 const passwordConfirmationUrl = async () => `${(await headers()).get("origin") ?? "http://localhost:3000"}/auth/confirm?next=/password/change`;
@@ -83,11 +83,14 @@ export async function saveEvaluationAnnotation(formData: FormData) {
 
   const { data: saved, error: savedError } = await supabase
     .from("admin_evaluation_annotations")
-    .select("start_offset, end_offset")
-    .eq("transcript_id", transcriptId);
+    .select("annotation_type, start_offset, end_offset")
+    .eq("transcript_id", transcriptId)
+    .eq("annotation_type", annotationType)
+    .eq("start_offset", startOffset)
+    .eq("end_offset", endOffset);
   if (savedError) throw new Error("Não foi possível validar as marcações existentes.");
-  if ((saved ?? []).some((item) => rangesOverlap(startOffset, endOffset, item.start_offset, item.end_offset))) {
-    throw new Error("Esse trecho já possui uma marcação sobreposta. Remova-a antes de criar outra.");
+  if ((saved ?? []).length > 0) {
+    throw new Error("Esta ferramenta já foi aplicada a esta fala.");
   }
 
   const { error } = await supabase.from("admin_evaluation_annotations").insert({

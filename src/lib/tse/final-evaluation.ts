@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import rubric from "./barema.v0.3.json";
 import { calculateEvaluation, type ErrorSubmission, type EvaluationSubmission, type ItemSubmission } from "./scoring";
 import { toEvaluationSubmission, type DidacticState } from "./didactic-state";
-import { detectDialogueTools, dialogueControlState } from "./dialogue-tools";
+import { detectDialogueTools, dialogueControlState, questionKinds } from "./dialogue-tools";
 import type { InternalCase, PublicBriefing } from "./session-case";
 
 type Transcript = { speaker: string; content: string; delivery_status: string };
@@ -41,10 +41,15 @@ function mergeFinalItems(baseline: EvaluationSubmission["itens"], candidate: unk
 
 function deterministicToolItems(transcript: Transcript[]): Record<string, ItemSubmission> {
   const tools = detectDialogueTools(transcript);
-  return {
+  const items: Record<string, ItemSubmission> = {
     ...(tools.parafrase ? { parafrase_resumida: { estado: "feito", evidencia: `Paráfrase resumida identificada: ${tools.parafrase}` } } : {}),
+    ...(tools.memoria ? { memoria_linkada: { estado: "feito", evidencia: `Memória linkada identificada: ${tools.memoria}` } } : {}),
     ...(tools.teia ? { maieutica_ou_teia: { estado: "feito", evidencia: `Teia de indução identificada: ${tools.teia}` } } : {}),
   };
+  const questions = questionKinds(transcript);
+  if (questions.simple && questions.complex) items.perguntas_simples_complexas = { estado: "feito", evidencia: `Pergunta simples e aprofundamento identificados: ${questions.simple} / ${questions.complex}` };
+  else if (questions.simple || questions.complex) items.perguntas_simples_complexas = { estado: "parcial", evidencia: `Pergunta ${questions.simple ? "simples" : "complexa"} identificada: ${questions.simple ?? questions.complex}` };
+  return items;
 }
 
 function applyDialogueControl(items: EvaluationSubmission["itens"], transcript: Transcript[]) {
