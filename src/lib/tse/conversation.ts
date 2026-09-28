@@ -10,6 +10,7 @@ import { activeElapsedMs, isActiveSessionExpired, remainingSessionMs, type Activ
 import { sessionDurationMs } from "./session-timer";
 import { evaluateCompletedTranscript } from "./final-evaluation";
 import { normalizePublicBriefing } from "./briefing";
+import { notifyEvaluationCompleted } from "@/lib/notifications/evaluation-notification";
 
 type Speaker = "ALUNO" | "PERSONAGEM" | "NARRADOR" | "SISTEMA";
 type Source = "TEXTO" | "VOZ" | "SISTEMA";
@@ -105,6 +106,7 @@ async function finalizeSevereOccurrenceLimit(input: { userId: string; sessionId:
     session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.4", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: 0,
   }, { onConflict: "session_id" });
   if (error) throw new Error("Não foi possível preparar a avaliação automática.");
+  await notifyEvaluationCompleted({ sessionId: session.id, userId: input.userId, finalScore: 0 });
   await transition(session.id, "ENCERRADA_SEM_EXITO");
   return { completed: true };
 }
@@ -120,6 +122,7 @@ export async function finalizeTrainingSession(input: { userId: string; sessionId
     session_id: session.id, user_id: input.userId, partial: calculation.parcial, result: "EXITO", rubric_version: "0.4", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
   }, { onConflict: "session_id" });
   if (evaluationError) throw new Error("Não foi possível preparar a avaliação automática.");
+  await notifyEvaluationCompleted({ sessionId: session.id, userId: input.userId, finalScore: calculation.nota_final });
   await transition(session.id, "ENCERRADA_COM_EXITO");
   return { completed: true };
 }
@@ -135,6 +138,7 @@ export async function finalizeManualTrainingSession(input: { userId: string; ses
     session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.4", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
   }, { onConflict: "session_id" });
   if (evaluationError) throw new Error("Não foi possível preparar a avaliação automática.");
+  await notifyEvaluationCompleted({ sessionId: session.id, userId: input.userId, finalScore: calculation.nota_final });
   await transition(session.id, "ENCERRADA_SEM_EXITO");
   return { completed: true };
 }
@@ -167,6 +171,7 @@ export async function finalizeTimedTrainingSession(input: { userId: string; sess
     session_id: session.id, user_id: input.userId, partial: true, result: "SEM_EXITO", rubric_version: "0.4", item_states: calculation.itens, grave_errors: calculation.erros_graves, calculation, final_score: calculation.nota_final,
   }, { onConflict: "session_id" });
   if (evaluationError) throw new Error("Não foi possível preparar a avaliação automática.");
+  await notifyEvaluationCompleted({ sessionId: session.id, userId: input.userId, finalScore: calculation.nota_final });
   await transition(session.id, "ENCERRADA_SEM_EXITO");
   return { completed: true, remainingMs: 0 };
 }

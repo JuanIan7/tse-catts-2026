@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/authorization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isAnnotationType, selectedTextForRange } from "@/lib/admin/evaluation-review";
+import { recalculateEvaluationFromAnnotations } from "@/lib/admin/recalculate-evaluation";
+import { adminNotificationAddress, sendEvaluationEmail } from "@/lib/notifications/evaluation-email";
 
 const allowed = new Set(["APROVADO", "RECUSADO", "BLOQUEADO"]);
 const passwordConfirmationUrl = async () => `${(await headers()).get("origin") ?? "http://localhost:3000"}/auth/confirm?next=/password/change`;
@@ -126,4 +128,43 @@ export async function saveEvaluationReviewNote(formData: FormData) {
   const { error } = await supabase.from("admin_evaluation_notes").upsert({ session_id: sessionId, note, updated_by: user.id }, { onConflict: "session_id" });
   if (error) throw new Error("Não foi possível salvar a observação geral.");
   revalidatePath("/admin");
+}
+
+async function logNotification(sessionId: string, kind: "ADMIN_FINISHED" | "ADMIN_REVIEW_REQUEST" | "STUDENT_RECALCULATED", recipient: string, sent: boolean, reason: string | null) {
+  await createSupabaseAdminClient().from("evaluation_notification_log").insert({ session_id: sessionId, kind, recipient, status: sent ? "SENT" : reason?.includes("pendente") ? "PENDING" : "FAILED", error_message: reason });
+}
+
+export async function recalculateEvaluation(formData: FormData) {
+  const { user, supabase } = await requireAdmin();
+  const sessionId = required(formData, "sessionId");
+  const [{ data: evaluation }, { data: annotations }] = await Promise.all([
+    supabase.from("evaluations").select("session_id, final_score, calculation").eq("session_id", sessionId).maybeSingle(),
+    supabase.from("admin_evaluation_annotations").select("id, session_id, transcript_id, annotation_type, start_offset, end_offset, selected_text, note").eq("session_id", sessionId),
+  ]);
+  if (!evaluation) throw new Error("Relatório de avaliação inválido.");
+  const calculation = recalculateEvaluationFromAnnotations(evaluation.calculation as Parameters<typeof recalculateEvaluationFromAnnotations>[0], (annotations ?? []).map((annotation) => ({ id: annotation.id, sessionId: annotation.session_id, transcriptId: annotation.transcript_id, annotationType: annotation.annotation_type, startOffset: annotation.start_offset, endOffset: annotation.end_offset, selectedText: annotation.selected_text, note: annotation.note })));
+  const { error } = await supabase.rpc("apply_admin_evaluation_recalculation", { p_session_id: sessionId, p_previous_score: evaluation.final_score, p_recalculated_score: calculation.nota_final, p_previous_calculation: evaluation.calculation, p_recalculated_calculation: calculation, p_reviewed_by: user.id });
+  if (error) throw new Error("Não foi possível registrar o recálculo. Execute a migração administrativa no Supabase.");
+  revalidatePath("/admin");
+  revalidatePath(`/app/sessions/${sessionId}`);
+}
+
+export async function sendRecalculatedEvaluationEmail(formData: FormData) {
+  await requireAdmin();
+  const sessionId = required(formData, "sessionId");
+  const admin = createSupabaseAdminClient();
+  const { data: evaluation } = await admin.from("evaluations").select("user_id, final_score, result").eq("session_id", sessionId).maybeSingle();
+  if (!evaluation) throw new Error("Relatório de avaliação inválido.");
+  const { data: account, error: accountError } = await admin.auth.admin.getUserById(evaluation.user_id);
+  if (accountError || !account.user.email) throw new Error("O aluno não possui e-mail disponível.");
+  const mail = await sendEvaluationEmail({ to: account.user.email, subject: "CATTS — nota de abordagem atualizada", text: `Sua avaliação foi revisada pelo administrador. Nota atualizada: ${Number(evaluation.final_score).toFixed(1)} / 10. Acesse o CATTS para consultar o relatório.` });
+  try { await logNotification(sessionId, "STUDENT_RECALCULATED", account.user.email, mail.sent, mail.reason); } catch { /* O e-mail já foi processado; falha de auditoria não deve provocar reenvio. */ }
+  if (!mail.sent) throw new Error(mail.reason ?? "Não foi possível enviar o e-mail.");
+  revalidatePath("/admin");
+}
+
+export async function notifyAdminOfCompletedEvaluation(input: { sessionId: string; studentName: string; finalScore: number }) {
+  const recipient = adminNotificationAddress();
+  const mail = await sendEvaluationEmail({ to: recipient, subject: "CATTS — abordagem finalizada para revisão", text: `${input.studentName} concluiu uma abordagem com nota ${input.finalScore.toFixed(1)} / 10. Revise no painel administrativo.` });
+  try { await logNotification(input.sessionId, "ADMIN_FINISHED", recipient, mail.sent, mail.reason); } catch { /* A avaliação já foi concluída; o log é complementar. */ }
 }

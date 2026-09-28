@@ -6,6 +6,9 @@ import { requireApprovedUser } from "@/lib/auth/authorization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { finalizeManualTrainingSession, recordStudentTurn } from "@/lib/tse/conversation";
 import { createSessionCase, difficultySchema, openingCharacterLine } from "@/lib/tse/session-case";
+import { adminNotificationAddress, sendEvaluationEmail } from "@/lib/notifications/evaluation-email";
+
+const reviewRequestTools = new Set(["PARAFRASE", "MEMORIA_LINKADA", "MAIEUTICA_TED", "SAIDA_DIGNA", "PERGUNTA_SIMPLES", "PERGUNTA_COMPLEXA", "FATOR_PROTECAO", "FATOR_RISCO", "FATOR_PRINCIPAL"]);
 
 export async function createTrainingSession(formData: FormData) {
   const difficulty = difficultySchema.safeParse(String(formData.get("difficulty") ?? ""));
@@ -57,6 +60,25 @@ export async function endTrainingSession(formData: FormData) {
   await finalizeManualTrainingSession({ userId: user.id, sessionId });
   revalidatePath("/app/sessions/" + sessionId);
   redirect("/app/sessions/" + sessionId);
+}
+
+export async function submitEvaluationReviewRequest(formData: FormData) {
+  const sessionId = String(formData.get("sessionId") ?? "");
+  const tools = formData.getAll("tools").map(String).filter((tool) => reviewRequestTools.has(tool));
+  if (!sessionId || tools.length === 0) throw new Error("Selecione ao menos uma ferramenta.");
+  const { user } = await requireApprovedUser();
+  const admin = createSupabaseAdminClient();
+  const { data: evaluation } = await admin.from("evaluations").select("session_id").eq("session_id", sessionId).eq("user_id", user.id).maybeSingle();
+  if (!evaluation) throw new Error("Avaliação indisponível.");
+  const { error } = await admin.from("evaluation_review_requests").insert({ session_id: sessionId, user_id: user.id, tools });
+  if (error) throw new Error("Não foi possível enviar o apontamento. Execute a migração administrativa no Supabase.");
+  try {
+    const recipient = adminNotificationAddress();
+    const { data: profile } = await admin.from("profiles").select("display_name").eq("user_id", user.id).maybeSingle();
+    const mail = await sendEvaluationEmail({ to: recipient, subject: "CATTS — ferramenta possivelmente não avaliada", text: `${profile?.display_name ?? "Aluno"} enviou um apontamento para a sessão ${sessionId}. Ferramentas indicadas: ${tools.join(", ")}. Consulte o painel administrativo.` });
+    await admin.from("evaluation_notification_log").insert({ session_id: sessionId, kind: "ADMIN_REVIEW_REQUEST", recipient, status: mail.sent ? "SENT" : mail.reason?.includes("pendente") ? "PENDING" : "FAILED", error_message: mail.reason });
+  } catch { /* O apontamento já foi salvo e não deve gerar duplicidade por falha de e-mail. */ }
+  revalidatePath(`/app/sessions/${sessionId}`);
 }
 
 export async function sendTrainingTurn(_previous: { error: string; sent: boolean; nonce: number }, formData: FormData) {
