@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { z } from "zod";
 import type { DidacticErrorSignal, DidacticSignal, DidacticState } from "./didactic-state";
 import type { Difficulty, InternalCase } from "./session-case";
-import { hasCharacterRoleInversion, safeCharacterFallback } from "./character-role";
+import { hasCharacterIdentityMismatch, hasCharacterRoleInversion, safeCharacterFallback } from "./character-role";
 import { responseFlowInstruction } from "./difficulty-flow";
 
 const observableItemIds = [
@@ -37,10 +37,12 @@ type TranscriptTurn = { speaker: "ALUNO" | "PERSONAGEM" | "NARRADOR" | "SISTEMA"
 export type CharacterResponse = { fala: string; aceita_saida_digna: boolean; rapport_delta: number; categorias_reveladas: string[]; evidencias: DidacticSignal[]; erros_graves: DidacticErrorSignal[] };
 
 function buildCaseCapsule(internalCase: InternalCase) {
+  const identidade = internalCase.identidade ?? { nome: "", apresentacao: internalCase.voz_personagem.apresentacao };
   return {
     contexto: internalCase.contexto.slice(0, 350),
     perfil: internalCase.perfil_comportamental.slice(0, 180),
     perfil_tipo: internalCase.perfil_tipo ?? "NAO_ESPECIFICADO",
+    identidade,
     fator_principal: internalCase.fator_principal.slice(0, 150),
     fatores_de_risco: internalCase.fatores_risco.slice(0, 3).map((value) => value.slice(0, 100)),
     fatos_ocultos: internalCase.ocultas.slice(0, 2).map((value) => value.slice(0, 100)),
@@ -64,7 +66,7 @@ export async function respondAsCharacter(internalCase: InternalCase, transcript:
     "Não descreva método, ferimentos, execução de ato ou qualquer instrução que facilite autoagressão. Não faça aconselhamento profissional, não avalie e não elogie o aluno.",
     "Responda em português brasileiro natural com, no máximo, três frases curtas, mantendo o mesmo perfil durante toda a ocorrência. A resistência é gradual e proporcional à dificuldade: o nível Médio existe para o aluno praticar e não pode bloquear o diálogo. Mantenha ambivalência até uma Saída Digna concreta, voluntária, imediata e aceita de forma inequívoca.",
     "Se o perfil for AGRESSIVO: raiva genuína, ordens para se afastar, palavrões reais e coerentes com a fala; não rir, debochar, ameaçar violência detalhada nem dirigir ofensas a grupos protegidos. Se o perfil for DEPRESSIVO: choro e voz embargada, respostas curtas nas primeiras 2 a 3 falas, sem alucinação alguma. Se o perfil for PSICOTICO: fala desorganizada, percepções de vozes ou portais não gráficas, medo da aproximação; não se torna lúcido de repente. Nunca misture alucinações aos outros perfis.",
-    "A fala anterior do próprio personagem também está no histórico. Reaja ao que o aluno fez, não repita mecanicamente a abertura. Você é exclusivamente o tentante: nunca inverta papéis, faça acolhimento, entrevista ou orientação ao aluno. Nunca pergunte onde ele mora, se está seguro, o que sente, o que pensa, qual é seu trabalho ou como pode ajudá-lo. Se o aluno perguntar algo sobre você, responda brevemente sobre sua própria situação ou recuse quando a política de dificuldade permitir. Nunca entregue espontaneamente outro fator de proteção ou risco. Nomes podem enriquecer a conversa apenas se forem perguntados. Nunca invente uma condição nova fora da cápsula.",
+    "A fala anterior do próprio personagem também está no histórico. Reaja ao que o aluno fez, não repita mecanicamente a abertura. Você é exclusivamente o tentante: nunca inverta papéis, faça acolhimento, entrevista ou orientação ao aluno. Nunca pergunte onde ele mora, se está seguro, o que sente, o que pensa, qual é seu trabalho ou como pode ajudá-lo. Nunca diga que está ali para ouvir ou ajudar o aluno. Se o aluno perguntar algo sobre você, responda brevemente sobre sua própria situação ou recuse quando a política de dificuldade permitir. Nunca entregue espontaneamente outro fator de proteção ou risco. Seu único nome é o da identidade interna; só revele esse nome se o aluno o perguntar nas condições da dificuldade. Nunca use ou assuma o nome do aluno/abordador. Nunca invente uma condição nova fora da cápsula.",
     `POLÍTICA DE FLUXO DA DIFICULDADE: ${responseFlowInstruction(difficulty, transcript)}`,
     "Se a mensagem mais recente do histórico for a nota 'Fala do tentante interrompida pelo abordador.', ela não foi dita por você: é um evento de sistema avisando que o aluno falou por cima da sua fala anterior antes que ela terminasse. Comece sua próxima fala reagindo a ter sido cortado, de acordo com o perfil — agressivo cobra explicitamente por ter sido interrompido, com irritação mais alta; depressivo se fecha mais e fala ainda menos; psicótico fica mais desorganizado e apreensivo. Nunca finja que a interrupção não aconteceu. Quanto maior o campo interrupcoes no estado didático, mais a resistência do personagem aumenta e mais difícil fica recuperar o vínculo.",
     "Os campos estruturados não são exibidos ao aluno. Use evidencias somente para condutas explicitamente observáveis no texto. Nunca avalie aproximação física, contato visual, postura ou tom acústico. Erros graves só podem aparecer com evidência literal e inequívoca na fala recente; em caso de dúvida, retorne lista vazia.",
@@ -79,9 +81,13 @@ export async function respondAsCharacter(internalCase: InternalCase, transcript:
     text: { format: { type: "json_schema", name: "tse_character_turn", strict: true, schema: responseSchema } },
   });
   let character = characterTurnSchema.parse(JSON.parse((await request(prompt)).output_text));
-  if (hasCharacterRoleInversion(character.fala)) {
-    character = characterTurnSchema.parse(JSON.parse((await request(`${prompt}\n\nCORREÇÃO OBRIGATÓRIA: a resposta anterior inverteu os papéis. Responda somente como tentante, sem fazer pergunta de acolhimento ao aluno.`)).output_text));
+  // Sessões iniciadas antes desta versão não tinham identidade persistida.
+  // Elas continuam respondendo com a proteção de papéis, sem quebrar a conversa ativa.
+  const expectedName = internalCase.identidade?.nome;
+  const invalid = (text: string) => hasCharacterRoleInversion(text) || (expectedName ? hasCharacterIdentityMismatch(text, expectedName) : false);
+  if (invalid(character.fala)) {
+    character = characterTurnSchema.parse(JSON.parse((await request(`${prompt}\n\nCORREÇÃO OBRIGATÓRIA: a resposta anterior inverteu os papéis ou usou identidade incompatível. Responda somente como tentante, sem pergunta de acolhimento ao aluno e usando somente a identidade interna caso o nome seja perguntado.`)).output_text));
   }
-  if (hasCharacterRoleInversion(character.fala)) return { ...character, fala: safeCharacterFallback, aceita_saida_digna: false, evidencias: [], erros_graves: [] };
+  if (invalid(character.fala)) return { ...character, fala: safeCharacterFallback, aceita_saida_digna: false, evidencias: [], erros_graves: [] };
   return character;
 }

@@ -6,6 +6,7 @@ export const difficultySchema = z.enum(["FACIL", "MEDIA", "DIFICIL"]);
 export type Difficulty = z.infer<typeof difficultySchema>;
 
 const internalCaseSchema = z.object({
+  identidade: z.object({ nome: z.string().min(2).max(40), apresentacao: z.enum(["MASCULINA", "FEMININA"]) }),
   fator_principal: z.string().min(1),
   fatores_risco: z.array(z.string().min(1)).min(2),
   fatores_protecao: z.array(z.string().min(1)).min(2),
@@ -43,6 +44,7 @@ type ScenarioTemplate = {
 const templates: ScenarioTemplate[] = [
   {
     internalCase: {
+      identidade: { nome: "Helena", apresentacao: "FEMININA" },
       fator_principal: "ruptura recente de vínculo afetivo relevante",
       fatores_risco: ["isolamento progressivo", "sono prejudicado nas últimas semanas", "sentimento persistente de desesperança"],
       fatores_protecao: ["vínculo afetivo com uma filha", "relação de confiança com uma irmã", "histórico de buscar ajuda em momentos difíceis"],
@@ -73,6 +75,7 @@ const templates: ScenarioTemplate[] = [
   },
   {
     internalCase: {
+      identidade: { nome: "Rafael", apresentacao: "MASCULINA" },
       fator_principal: "perda recente de referência profissional e sentido de pertencimento",
       fatores_risco: ["retraimento social", "dificuldade financeira recente", "autocrítica intensa"],
       fatores_protecao: ["amizade duradoura", "participação anterior em atividade comunitária", "responsabilidade afetiva com um animal de estimação"],
@@ -103,6 +106,7 @@ const templates: ScenarioTemplate[] = [
   },
   {
     internalCase: {
+      identidade: { nome: "Larissa", apresentacao: "FEMININA" },
       fator_principal: "interrupção recente de acompanhamento em saúde mental, acompanhada de confusão e medo",
       fatores_risco: ["isolamento nas últimas semanas", "sono muito irregular", "desconfiança crescente das pessoas próximas"],
       fatores_protecao: ["irmã que mantém contato frequente", "histórico de aceitar apoio de uma equipe de saúde", "vínculo com atividade artística comunitária"],
@@ -141,6 +145,17 @@ const caseLibrary: ScenarioTemplate[] = [
   })),
 ];
 
+const namesByPresentation = {
+  MASCULINA: ["Rafael", "André", "Caio", "Daniel", "Igor", "Leandro", "Marcos", "Vinícius"],
+  FEMININA: ["Helena", "Aline", "Bianca", "Camila", "Débora", "Fernanda", "Larissa", "Patrícia"],
+} as const;
+
+function identityFor(internalCase: InternalCase, random: () => number) {
+  const presentation = internalCase.voz_personagem.apresentacao;
+  const names = namesByPresentation[presentation];
+  return { nome: names[Math.floor(random() * names.length)], apresentacao: presentation };
+}
+
 export function openingCharacterLine(internalCase: InternalCase) {
   switch (internalCase.perfil_tipo) {
     case "AGRESSIVO":
@@ -165,7 +180,7 @@ export function createSessionCase(difficulty: Difficulty, random = Math.random, 
   const eligible = caseLibrary.filter((template) => !recent.has(template.publicBriefing.titulo));
   const choices = eligible.length ? eligible : caseLibrary;
   const template = choices[Math.floor(random() * choices.length)];
-  const internalCase = internalCaseSchema.parse(template.internalCase);
+  const internalCase = internalCaseSchema.parse({ ...template.internalCase, identidade: identityFor(template.internalCase, random) });
   const publicBriefing = publicBriefingSchema.parse({ ...template.publicBriefing, dificuldade: difficulty });
   return { internalCase, publicBriefing };
 }

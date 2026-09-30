@@ -159,5 +159,22 @@ th { color:#5d5e56; font-size:.74rem; letter-spacing:.08em; text-transform:upper
 .review-request-form h3 { margin-bottom:.35rem; }
 .review-request-form label { display:flex; align-items:center; gap:.5rem; font-size:.85rem; }
 .review-request-form input { width:auto; }
+.appeal-form form { gap:.85rem; }
+.appeal-turn-list { display:grid; gap:.55rem; max-height:22rem; overflow:auto; padding:.2rem; }
+.appeal-turn,.appeal-turn-selected { display:grid; gap:.35rem; text-align:left; color:var(--ink); background:#f5f4ef; border:2px solid var(--line); padding:.75rem .8rem; }
+.appeal-turn span,.appeal-turn-selected span { font-weight:400; line-height:1.4; }
+.appeal-turn-selected { background:#f7eaa8; border-color:#b38d14; box-shadow:inset 0 0 0 1px #fff8d4; }
+.appeal-tools { display:flex; flex-wrap:wrap; gap:.45rem; }
+.appeal-tools label { display:flex; align-items:center; border:2px solid var(--line); background:#fff; border-radius:9px; padding:.45rem .55rem; font-size:.78rem; }
+.appeal-tools input { accent-color:#8a6a08; }
+.review-selection-actions { display:flex; justify-content:space-between; align-items:center; gap:.55rem; flex-wrap:wrap; }
+.review-selection-actions button { padding:.42rem .6rem; font-size:.75rem; }
+.appeal-admin { margin-top:.9rem; padding:.85rem; border:1px solid #e5dba8; border-radius:12px; background:#fffdf4; }
+.appeal-admin h3 { margin-bottom:.3rem; }
+.appeal-admin ul { display:grid; gap:.5rem; list-style:none; padding:0; margin:.75rem 0; }
+.appeal-admin li { padding:.65rem .7rem; border:1px solid var(--line); border-radius:9px; background:#fff; }
+.appeal-admin li p { margin:.35rem 0; line-height:1.35; }
+.appeal-admin form { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+.appeal-admin select { width:auto; min-width:8rem; padding:.42rem .5rem; }
 @media (max-width:760px) { .auth-page { padding:1rem; align-items:start; } .auth-layout { grid-template-columns:1fr; gap:1.75rem; } .auth-intro { padding:1rem .35rem; } .auth-points { max-width:28rem; } .dashboard-grid,.review-workspace { grid-template-columns:1fr; } .difficulty-grid { grid-template-columns:1fr; } .difficulty-grid select { grid-column:auto; } .app-header-inner { min-height:4.1rem; } .app-main { padding-top:1rem; } .review-tool-sidebar { position:static; max-height:none; } th,td { white-space:nowrap; } }
 @media (prefers-reduced-motion:reduce) { *,*:before,*:after { scroll-behavior:auto!important; transition:none!important; } }

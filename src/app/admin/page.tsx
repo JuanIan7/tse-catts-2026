@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { AdminEvaluationReview, type AdminReviewSession } from "@/components/admin-evaluation-review";
+import { AdminEvaluationReview, type AdminReviewSession } from "@/components/admin-evaluation-review-v2";
 import { requireAdmin } from "@/lib/auth/authorization";
 import { inviteUser, reviewAccess, sendPasswordReset } from "./actions";
 import { normalizePublicBriefing } from "@/lib/tse/briefing";
@@ -12,7 +12,8 @@ type SessionRow = { id: string; difficulty: "FACIL" | "MEDIA" | "DIFICIL"; ended
 type TranscriptRow = { id: string; session_id: string; speaker: "ALUNO" | "PERSONAGEM" | "NARRADOR" | "SISTEMA"; content: string };
 type AnnotationRow = { id: string; session_id: string; transcript_id: string; annotation_type: AnnotationType; start_offset: number; end_offset: number; selected_text: string; note: string | null };
 type GeneralNoteRow = { session_id: string; note: string };
-type ReviewRequestRow = { session_id: string; tools: string[]; created_at: string };
+type AppealRow = { id: string; session_id: string; status: "PENDENTE" | "ACEITO" | "PARCIAL" | "REJEITADO"; created_at: string; previous_score: number; recalculated_score: number | null };
+type AppealItemRow = { id: string; appeal_id: string; transcript_id: string; annotation_type: AnnotationType; selected_text: string; decision: "PENDENTE" | "ACEITO" | "REJEITADO"; created_at: string };
 const difficultyLabel: Record<SessionRow["difficulty"], string> = { FACIL: "Médio", MEDIA: "Difícil", DIFICIL: "Muito difícil" };
 
 export default async function AdminPage() {
@@ -20,11 +21,11 @@ export default async function AdminPage() {
   const { data, error } = await supabase.from("access_requests").select("user_id, requested_name, requested_email, requested_at, decision").order("requested_at", { ascending: false });
   if (error) throw new Error("Não foi possível consultar solicitações.");
   const requests = (data ?? []) as RequestRow[];
-  const [{ data: evaluationData }, { data: recentRequestData }] = await Promise.all([
-    supabase.from("evaluations").select("session_id, user_id, result, final_score, calculation, created_at").order("created_at", { ascending: false }).limit(5),
-    supabase.from("evaluation_review_requests").select("session_id").order("created_at", { ascending: false }).limit(5),
+  const [{ data: evaluationData }, { data: recentAppealData }] = await Promise.all([
+    supabase.from("evaluations").select("session_id, user_id, result, final_score, calculation, created_at").order("created_at", { ascending: false }).limit(8),
+    supabase.from("evaluation_appeals").select("session_id").order("created_at", { ascending: false }).limit(8),
   ]);
-  const requestedSessionIds = [...new Set((recentRequestData ?? []).map((request) => request.session_id))];
+  const requestedSessionIds = [...new Set((recentAppealData ?? []).map((appeal) => appeal.session_id))];
   const initialEvaluations = (evaluationData ?? []) as EvaluationRow[];
   const missingRequestedIds = requestedSessionIds.filter((id) => !initialEvaluations.some((evaluation) => evaluation.session_id === id));
   const { data: requestedEvaluationData } = missingRequestedIds.length > 0
@@ -33,20 +34,25 @@ export default async function AdminPage() {
   const evaluations = [...initialEvaluations, ...((requestedEvaluationData ?? []) as EvaluationRow[])];
   const sessionIds = evaluations.map((evaluation) => evaluation.session_id);
   const userIds = [...new Set(evaluations.map((evaluation) => evaluation.user_id))];
-  const [sessionResult, transcriptResult, profileResult, annotationResult, noteResult, reviewRequestResult] = sessionIds.length > 0 ? await Promise.all([
+  const [sessionResult, transcriptResult, profileResult, annotationResult, noteResult, appealResult] = sessionIds.length > 0 ? await Promise.all([
     supabase.from("training_sessions").select("id, difficulty, ended_at, public_briefing").in("id", sessionIds),
     supabase.from("training_transcripts").select("id, session_id, speaker, content, sequence_number").in("session_id", sessionIds).order("sequence_number", { ascending: true }),
     supabase.from("profiles").select("user_id, display_name").in("user_id", userIds),
     supabase.from("admin_evaluation_annotations").select("id, session_id, transcript_id, annotation_type, start_offset, end_offset, selected_text, note").in("session_id", sessionIds),
     supabase.from("admin_evaluation_notes").select("session_id, note").in("session_id", sessionIds),
-    supabase.from("evaluation_review_requests").select("session_id, tools, created_at").in("session_id", sessionIds).order("created_at", { ascending: false }),
+    supabase.from("evaluation_appeals").select("id, session_id, status, created_at, previous_score, recalculated_score").in("session_id", sessionIds).order("created_at", { ascending: false }),
   ]) : [null, null, null, null, null, null];
   const sessionRows = ((sessionResult?.data ?? []) as SessionRow[]);
   const transcriptRows = ((transcriptResult?.data ?? []) as TranscriptRow[]);
   const profiles = new Map(((profileResult?.data ?? []) as { user_id: string; display_name: string }[]).map((profile) => [profile.user_id, profile.display_name]));
   const annotations = (annotationResult?.data ?? []) as AnnotationRow[];
   const notes = new Map(((noteResult?.data ?? []) as GeneralNoteRow[]).map((note) => [note.session_id, note.note]));
-  const reviewRequests = (reviewRequestResult?.data ?? []) as ReviewRequestRow[];
+  const appeals = (appealResult?.data ?? []) as AppealRow[];
+  const appealIds = appeals.map((appeal) => appeal.id);
+  const { data: appealItemData } = appealIds.length > 0
+    ? await supabase.from("evaluation_appeal_items").select("id, appeal_id, transcript_id, annotation_type, selected_text, decision, created_at").in("appeal_id", appealIds).order("created_at", { ascending: true })
+    : { data: [] as AppealItemRow[] };
+  const appealItems = (appealItemData ?? []) as AppealItemRow[];
   const sessionById = new Map(sessionRows.map((session) => [session.id, session]));
   const reviews: AdminReviewSession[] = evaluations.flatMap((evaluation) => {
     const session = sessionById.get(evaluation.session_id);
@@ -62,7 +68,7 @@ export default async function AdminPage() {
       evaluation: { result: evaluation.result, finalScore: Number(evaluation.final_score), calculation: evaluation.calculation },
       annotations: annotations.filter((annotation) => annotation.session_id === session.id).map((annotation) => ({ id: annotation.id, sessionId: annotation.session_id, transcriptId: annotation.transcript_id, annotationType: annotation.annotation_type, startOffset: annotation.start_offset, endOffset: annotation.end_offset, selectedText: annotation.selected_text, note: annotation.note })),
       generalNote: notes.get(session.id) ?? null,
-      reviewRequests: reviewRequests.filter((request) => request.session_id === session.id).map((request) => ({ tools: request.tools, createdAt: request.created_at })),
+      appeals: appeals.filter((appeal) => appeal.session_id === session.id).map((appeal) => ({ id: appeal.id, status: appeal.status, createdAt: appeal.created_at, previousScore: Number(appeal.previous_score), recalculatedScore: appeal.recalculated_score === null ? null : Number(appeal.recalculated_score), items: appealItems.filter((item) => item.appeal_id === appeal.id).map((item) => ({ id: item.id, transcriptId: item.transcript_id, annotationType: item.annotation_type, selectedText: item.selected_text, decision: item.decision })) })),
     }];
   });
   return <AppShell backHref="/app" backLabel="Painel do aluno">

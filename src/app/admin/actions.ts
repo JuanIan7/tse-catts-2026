@@ -5,9 +5,11 @@ import { requireAdmin } from "@/lib/auth/authorization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isAnnotationType, selectedTextForRange } from "@/lib/admin/evaluation-review";
 import { recalculateEvaluationFromAnnotations } from "@/lib/admin/recalculate-evaluation";
+import { appealStatusFor } from "@/lib/admin/evaluation-appeal";
 import { adminNotificationAddress, sendEvaluationEmail } from "@/lib/notifications/evaluation-email";
 
 const allowed = new Set(["APROVADO", "RECUSADO", "BLOQUEADO"]);
+const appealDecisions = new Set(["ACEITO", "REJEITADO"]);
 const passwordConfirmationUrl = async () => `${(await headers()).get("origin") ?? "http://localhost:3000"}/auth/confirm?next=/password/change`;
 
 export async function inviteUser(formData: FormData) {
@@ -145,8 +147,69 @@ export async function recalculateEvaluation(formData: FormData) {
   const calculation = recalculateEvaluationFromAnnotations(evaluation.calculation as Parameters<typeof recalculateEvaluationFromAnnotations>[0], (annotations ?? []).map((annotation) => ({ id: annotation.id, sessionId: annotation.session_id, transcriptId: annotation.transcript_id, annotationType: annotation.annotation_type, startOffset: annotation.start_offset, endOffset: annotation.end_offset, selectedText: annotation.selected_text, note: annotation.note })));
   const { error } = await supabase.rpc("apply_admin_evaluation_recalculation", { p_session_id: sessionId, p_previous_score: evaluation.final_score, p_recalculated_score: calculation.nota_final, p_previous_calculation: evaluation.calculation, p_recalculated_calculation: calculation, p_reviewed_by: user.id });
   if (error) throw new Error("Não foi possível registrar o recálculo. Execute a migração administrativa no Supabase.");
+  await supabase.from("evaluation_appeals").update({ recalculated_score: calculation.nota_final }).eq("session_id", sessionId).in("status", ["ACEITO", "PARCIAL"]);
   revalidatePath("/admin");
   revalidatePath(`/app/sessions/${sessionId}`);
+}
+
+export async function previewAppealRecalculation(formData: FormData) {
+  const { supabase } = await requireAdmin();
+  const sessionId = required(formData, "sessionId");
+  const [{ data: evaluation }, { data: annotations }, { data: appeals }] = await Promise.all([
+    supabase.from("evaluations").select("session_id, calculation").eq("session_id", sessionId).maybeSingle(),
+    supabase.from("admin_evaluation_annotations").select("id, session_id, transcript_id, annotation_type, start_offset, end_offset, selected_text, note").eq("session_id", sessionId),
+    supabase.from("evaluation_appeals").select("id, status").eq("session_id", sessionId).in("status", ["ACEITO", "PARCIAL"]),
+  ]);
+  if (!evaluation || !appeals?.length) throw new Error("Não há recurso decidido para calcular a prévia.");
+  const calculation = recalculateEvaluationFromAnnotations(evaluation.calculation as Parameters<typeof recalculateEvaluationFromAnnotations>[0], (annotations ?? []).map((annotation) => ({ id: annotation.id, sessionId: annotation.session_id, transcriptId: annotation.transcript_id, annotationType: annotation.annotation_type, startOffset: annotation.start_offset, endOffset: annotation.end_offset, selectedText: annotation.selected_text, note: annotation.note })));
+  const { error } = await supabase.from("evaluation_appeals").update({ recalculated_score: calculation.nota_final }).eq("session_id", sessionId).in("status", ["ACEITO", "PARCIAL"]);
+  if (error) throw new Error("Não foi possível salvar a prévia do recurso.");
+  revalidatePath("/admin");
+}
+
+export async function decideEvaluationAppealItem(formData: FormData) {
+  const { user, supabase } = await requireAdmin();
+  const appealId = required(formData, "appealId");
+  const itemId = required(formData, "appealItemId");
+  const decision = required(formData, "decision");
+  if (!appealDecisions.has(decision)) throw new Error("Decisão de recurso inválida.");
+
+  const { data: item, error: itemError } = await supabase
+    .from("evaluation_appeal_items")
+    .select("id, appeal_id, transcript_id, annotation_type, selected_text, accepted_annotation_id, evaluation_appeals!inner(session_id)")
+    .eq("id", itemId).eq("appeal_id", appealId).maybeSingle();
+  if (itemError || !item) throw new Error("Item de recurso não encontrado.");
+  const joinedAppeal = Array.isArray(item.evaluation_appeals) ? item.evaluation_appeals[0] : item.evaluation_appeals;
+  const sessionId = (joinedAppeal as { session_id?: string } | null)?.session_id;
+  if (!sessionId) throw new Error("Recurso sem sessão associada.");
+  await requireEvaluatedSession(supabase, sessionId);
+
+  let acceptedAnnotationId: string | null = item.accepted_annotation_id;
+  if (decision === "ACEITO") {
+    const { data: existing, error: existingError } = await supabase.from("admin_evaluation_annotations").select("id").eq("transcript_id", item.transcript_id).eq("annotation_type", item.annotation_type).eq("start_offset", 0).eq("end_offset", Array.from(item.selected_text).length).maybeSingle();
+    if (existingError) throw new Error("Não foi possível validar a marcação aprovada.");
+    if (!existing) {
+      const { data: created, error: annotationError } = await supabase.from("admin_evaluation_annotations").insert({
+        session_id: sessionId, transcript_id: item.transcript_id, annotation_type: item.annotation_type,
+        start_offset: 0, end_offset: Array.from(item.selected_text).length, selected_text: item.selected_text,
+        note: "Marcação aceita a partir de recurso do aluno.", created_by: user.id,
+      }).select("id").single();
+      if (annotationError || !created) throw new Error("Não foi possível aplicar a marcação aprovada.");
+      acceptedAnnotationId = created.id;
+    } else if (!acceptedAnnotationId) acceptedAnnotationId = null;
+  } else if (acceptedAnnotationId) {
+    const { error: deleteError } = await supabase.from("admin_evaluation_annotations").delete().eq("id", acceptedAnnotationId).eq("session_id", sessionId);
+    if (deleteError) throw new Error("Não foi possível remover a marcação rejeitada.");
+    acceptedAnnotationId = null;
+  }
+
+  const { error: updateError } = await supabase.from("evaluation_appeal_items").update({ decision, accepted_annotation_id: acceptedAnnotationId, decided_by: user.id, decided_at: new Date().toISOString() }).eq("id", itemId).eq("appeal_id", appealId);
+  if (updateError) throw new Error("Não foi possível registrar a decisão do recurso.");
+  const { data: allItems } = await supabase.from("evaluation_appeal_items").select("decision").eq("appeal_id", appealId);
+  const status = appealStatusFor((allItems ?? []).map((entry) => entry.decision));
+  const { error: appealError } = await supabase.from("evaluation_appeals").update({ status, reviewed_by: user.id, reviewed_at: status === "PENDENTE" ? null : new Date().toISOString() }).eq("id", appealId);
+  if (appealError) throw new Error("Não foi possível atualizar o recurso.");
+  revalidatePath("/admin");
 }
 
 export async function sendRecalculatedEvaluationEmail(formData: FormData) {
@@ -156,7 +219,7 @@ export async function sendRecalculatedEvaluationEmail(formData: FormData) {
   const { data: evaluation } = await admin.from("evaluations").select("user_id, final_score, result").eq("session_id", sessionId).maybeSingle();
   if (!evaluation) throw new Error("Relatório de avaliação inválido.");
   const { data: account, error: accountError } = await admin.auth.admin.getUserById(evaluation.user_id);
-  if (accountError || !account.user.email) throw new Error("O aluno não possui e-mail disponível.");
+  if (accountError || !account.user?.email) throw new Error(`Não foi possível localizar o e-mail do aluno${accountError?.message ? `: ${accountError.message}` : "."}`);
   const mail = await sendEvaluationEmail({ to: account.user.email, subject: "CATTS — nota de abordagem atualizada", text: `Sua avaliação foi revisada pelo administrador. Nota atualizada: ${Number(evaluation.final_score).toFixed(1)} / 10. Acesse o CATTS para consultar o relatório.` });
   try { await logNotification(sessionId, "STUDENT_RECALCULATED", account.user.email, mail.sent, mail.reason); } catch { /* O e-mail já foi processado; falha de auditoria não deve provocar reenvio. */ }
   if (!mail.sent) throw new Error(mail.reason ?? "Não foi possível enviar o e-mail.");

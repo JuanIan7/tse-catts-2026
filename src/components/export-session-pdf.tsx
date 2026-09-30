@@ -32,12 +32,20 @@ type Evaluation = {
   };
 };
 
+type ReviewAppeal = {
+  status: "PENDENTE" | "ACEITO" | "PARCIAL" | "REJEITADO";
+  createdAt: string;
+  previousScore: number;
+  recalculatedScore: number | null;
+  items: { annotationType: keyof typeof annotationMeta; selectedText: string; decision: "PENDENTE" | "ACEITO" | "REJEITADO" }[];
+};
+
 type Props = {
   title: string;
   difficulty: string;
   transcript: TranscriptTurn[];
   evaluation: Evaluation;
-  review?: { annotations: ReviewAnnotation[]; generalNote: string | null };
+  review?: { annotations: ReviewAnnotation[]; generalNote: string | null; appeals?: ReviewAppeal[] };
   disabled?: boolean;
 };
 
@@ -189,6 +197,15 @@ export function ExportSessionPdf({ title, difficulty, transcript, evaluation, re
       });
       heading("Observação geral", 13);
       text(review.generalNote || "Nenhuma observação geral salva.", 10);
+
+      if (review.appeals?.length) {
+        heading("Recursos de nota", 13);
+        review.appeals.forEach((appeal, appealIndex) => {
+          text(`Recurso ${appealIndex + 1}: ${appeal.status.toLowerCase()} · enviado em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(appeal.createdAt))}`, 9);
+          text(`Nota original: ${appeal.previousScore.toFixed(1)} / 10${appeal.recalculatedScore === null ? "" : ` · prévia: ${appeal.recalculatedScore.toFixed(1)} / 10`}`, 8, 4);
+          appeal.items.forEach((item) => text(`${annotationMeta[item.annotationType].label} · ${item.decision.toLowerCase()} · “${item.selectedText}”`, 8, 4));
+        });
+      }
     }
 
     addFooter();

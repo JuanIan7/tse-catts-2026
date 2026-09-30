@@ -81,6 +81,49 @@ export async function submitEvaluationReviewRequest(formData: FormData) {
   revalidatePath(`/app/sessions/${sessionId}`);
 }
 
+export async function submitEvaluationAppeal(formData: FormData) {
+  const sessionId = String(formData.get("sessionId") ?? "");
+  const transcriptIds = [...new Set(formData.getAll("transcriptIds").map(String).filter(Boolean))];
+  const tools = [...new Set(formData.getAll("tools").map(String).filter((tool) => reviewRequestTools.has(tool)))];
+  if (!sessionId || transcriptIds.length === 0 || tools.length === 0) throw new Error("Selecione ao menos uma fala e uma ferramenta para enviar o recurso.");
+
+  const { user } = await requireApprovedUser();
+  const admin = createSupabaseAdminClient();
+  const [{ data: evaluation }, { data: turns }] = await Promise.all([
+    admin.from("evaluations").select("session_id, final_score").eq("session_id", sessionId).eq("user_id", user.id).maybeSingle(),
+    admin.from("training_transcripts").select("id, content, speaker").eq("session_id", sessionId).in("id", transcriptIds),
+  ]);
+  const validTurns = (turns ?? []).filter((turn) => turn.speaker === "ALUNO" || turn.speaker === "PERSONAGEM");
+  if (!evaluation || validTurns.length !== transcriptIds.length) throw new Error("As falas selecionadas não pertencem a esta avaliação.");
+
+  const { data: appeal, error: appealError } = await admin.from("evaluation_appeals").insert({
+    session_id: sessionId,
+    user_id: user.id,
+    previous_score: evaluation.final_score,
+  }).select("id").single();
+  if (appealError || !appeal) throw new Error("Não foi possível registrar o recurso. Execute a migração de recursos no Supabase.");
+
+  const items = validTurns.flatMap((turn) => tools.map((annotation_type) => ({
+    appeal_id: appeal.id,
+    transcript_id: turn.id,
+    annotation_type,
+    selected_text: turn.content,
+  })));
+  const { error: itemsError } = await admin.from("evaluation_appeal_items").insert(items);
+  if (itemsError) {
+    await admin.from("evaluation_appeals").delete().eq("id", appeal.id).eq("user_id", user.id);
+    throw new Error("Não foi possível registrar as falas do recurso.");
+  }
+
+  try {
+    const recipient = adminNotificationAddress();
+    const { data: profile } = await admin.from("profiles").select("display_name").eq("user_id", user.id).maybeSingle();
+    const mail = await sendEvaluationEmail({ to: recipient, subject: "CATTS — recurso de nota aguardando revisão", text: `${profile?.display_name ?? "Aluno"} enviou um recurso para a sessão ${sessionId}, com ${validTurns.length} fala(s) e ${tools.length} ferramenta(s). Consulte o painel administrativo.` });
+    await admin.from("evaluation_notification_log").insert({ session_id: sessionId, kind: "ADMIN_REVIEW_REQUEST", recipient, status: mail.sent ? "SENT" : mail.reason?.includes("pendente") ? "PENDING" : "FAILED", error_message: mail.reason });
+  } catch { /* O recurso foi persistido; a notificação é complementar. */ }
+  revalidatePath(`/app/sessions/${sessionId}`);
+}
+
 export async function sendTrainingTurn(_previous: { error: string; sent: boolean; nonce: number }, formData: FormData) {
   const sessionId = String(formData.get("sessionId") ?? "");
   const content = String(formData.get("content") ?? "");
