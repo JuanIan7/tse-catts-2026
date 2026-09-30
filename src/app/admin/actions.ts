@@ -216,8 +216,13 @@ export async function sendRecalculatedEvaluationEmail(formData: FormData) {
   await requireAdmin();
   const sessionId = required(formData, "sessionId");
   const admin = createSupabaseAdminClient();
-  const { data: evaluation } = await admin.from("evaluations").select("user_id, final_score, result").eq("session_id", sessionId).maybeSingle();
+  const [{ data: evaluation }, { data: review, error: reviewError }] = await Promise.all([
+    admin.from("evaluations").select("user_id, final_score, result").eq("session_id", sessionId).maybeSingle(),
+    admin.from("evaluation_manual_reviews").select("id").eq("session_id", sessionId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
   if (!evaluation) throw new Error("Relatório de avaliação inválido.");
+  if (reviewError) throw new Error("Não foi possível confirmar o recálculo da avaliação.");
+  if (!review) throw new Error("Aplique a nota recalculada antes de enviá-la por e-mail.");
   const { data: account, error: accountError } = await admin.auth.admin.getUserById(evaluation.user_id);
   if (accountError || !account.user?.email) throw new Error(`Não foi possível localizar o e-mail do aluno${accountError?.message ? `: ${accountError.message}` : "."}`);
   const mail = await sendEvaluationEmail({ to: account.user.email, subject: "CATTS — nota de abordagem atualizada", text: `Sua avaliação foi revisada pelo administrador. Nota atualizada: ${Number(evaluation.final_score).toFixed(1)} / 10. Acesse o CATTS para consultar o relatório.` });

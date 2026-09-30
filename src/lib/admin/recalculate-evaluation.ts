@@ -26,7 +26,16 @@ function asSubmission(calculation: StoredCalculation): EvaluationSubmission {
   const itens = Object.fromEntries(rubric.itens.map((rule) => {
     const current = byId.get(rule.id);
     const fallbackState = "nao_feito" in rule.estados ? "nao_feito" : "nao_encontrou" in rule.estados ? "nao_encontrou" : "nao_observavel";
-    return [rule.id, { estado: current?.estado ?? fallbackState, evidencia: current?.evidencia || "Sem evidência registrada.", ...(current?.ajuste !== undefined ? { ajuste: current.ajuste } : {}) } satisfies ItemSubmission];
+    // Apenas os fatores usam um ajuste proporcional informado manualmente.
+    // Os demais itens têm o ajuste definido pelo barema a partir do estado.
+    // Reaproveitar o ajuste salvo (por exemplo, 0,1 dos itens automáticos)
+    // faz o validador rejeitar o recálculo.
+    const acceptsManualAdjustment = rule.id === "fatores_protecao" || rule.id === "fatores_risco";
+    return [rule.id, {
+      estado: current?.estado ?? fallbackState,
+      evidencia: current?.evidencia || "Sem evidência registrada.",
+      ...(acceptsManualAdjustment && current?.ajuste !== undefined ? { ajuste: current.ajuste } : {}),
+    } satisfies ItemSubmission];
   }));
   const sourceErrors = Array.isArray(calculation.erros_graves)
     ? Object.fromEntries(calculation.erros_graves.map((error) => [error.id, { aplicado: error.aplicado, evidencia: error.evidencia }]))

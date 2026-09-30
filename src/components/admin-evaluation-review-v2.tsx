@@ -12,10 +12,45 @@ type AppealItem = { id: string; transcriptId: string; annotationType: Annotation
 type Appeal = { id: string; status: "PENDENTE" | "ACEITO" | "PARCIAL" | "REJEITADO"; createdAt: string; previousScore: number; recalculatedScore: number | null; items: AppealItem[] };
 export type AdminReviewSession = { id: string; title: string; difficulty: string; completedAt: string; studentName: string; transcript: Turn[]; evaluation: Evaluation; annotations: ReviewAnnotation[]; generalNote: string | null; appeals: Appeal[] };
 type Selection = { transcriptId: string; startOffset: number; endOffset: number; selectedText: string };
+type ReviewAction = (formData: FormData) => Promise<void>;
 
 const labels: Record<Turn["speaker"], string> = { ALUNO: "Você", PERSONAGEM: "Tentante", NARRADOR: "Narrador", SISTEMA: "Sistema" };
 const time = (value: string) => new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 const selectionFor = (turn: Turn): Selection => ({ transcriptId: turn.id, startOffset: 0, endOffset: Array.from(turn.content).length, selectedText: turn.content });
+
+function ReviewActions({ sessionId, pending, appeals }: { sessionId: string; pending: boolean; appeals: Appeal[] }) {
+  const router = useRouter();
+  const [running, setRunning] = useState<"preview" | "apply" | "email" | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const hasDecidedAppeal = appeals.some((appeal) => appeal.status === "ACEITO" || appeal.status === "PARCIAL");
+
+  const run = async (kind: "preview" | "apply" | "email", action: ReviewAction, success: string) => {
+    setRunning(kind);
+    setMessage(null);
+    const formData = new FormData();
+    formData.set("sessionId", sessionId);
+    try {
+      await action(formData);
+      setMessage(success);
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error && error.message ? error.message : "Não foi possível concluir esta ação. Tente novamente.");
+    } finally {
+      setRunning(null);
+    }
+  };
+
+  return <>
+    <div className="review-actions">
+      <button type="button" disabled={pending || !hasDecidedAppeal || running !== null} title={!hasDecidedAppeal ? "Aceite ao menos um item de recurso para calcular a prévia." : undefined} onClick={() => void run("preview", previewAppealRecalculation, "Prévia do recurso calculada e disponível para conferência.")}>{running === "preview" ? "Calculando prévia..." : "Calcular prévia dos recursos"}</button>
+      <button type="button" disabled={pending || running !== null} onClick={() => void run("apply", recalculateEvaluation, "Nota recalculada e aguardando seu envio ao aluno.")}>{running === "apply" ? "Aplicando nota..." : "Aplicar nota recalculada"}</button>
+      <button type="button" disabled={running !== null} onClick={() => void run("email", sendRecalculatedEvaluationEmail, "Nova nota enviada por e-mail ao aluno.")}>{running === "email" ? "Enviando e-mail..." : "Enviar nova nota por e-mail"}</button>
+    </div>
+    {!hasDecidedAppeal && <p className="panel-subtitle">Aceite ao menos um item de recurso para liberar a prévia.</p>}
+    <p className="panel-subtitle">O Resend está em modo de testes: para enviar a alunos, valide um domínio no Resend e use esse domínio em <code>RESEND_FROM</code>.</p>
+    {message && <p className="review-status" role="status">{message}</p>}
+  </>;
+}
 
 export function AdminEvaluationReview({ sessions }: { sessions: AdminReviewSession[] }) {
   const router = useRouter();
@@ -64,7 +99,7 @@ export function AdminEvaluationReview({ sessions }: { sessions: AdminReviewSessi
   return <section className="panel admin-review">
     <div className="admin-review-heading"><div><div className="eyebrow">Exclusivo do administrador</div><h2>Revisão de avaliações</h2><p className="panel-subtitle">Últimas oito abordagens concluídas, com recurso por fala e revisão manual.</p></div><ExportSessionPdf title={selected.title} difficulty={selected.difficulty} transcript={selected.transcript} evaluation={selected.evaluation} review={{ annotations, generalNote: selected.generalNote, appeals: selected.appeals }} /></div>
     <div className="review-session-list" role="list" aria-label="Últimas abordagens">{sessions.map((session) => <button type="button" role="listitem" key={session.id} className={session.id === selected.id ? "review-session-active" : "review-session"} onClick={() => { setSelectedId(session.id); setSelections([]); setMessage(null); }}><strong>{session.studentName}</strong><span>{session.evaluation.finalScore.toFixed(1)} / 10 · {time(session.completedAt)}</span>{session.appeals.some((appeal) => appeal.status === "PENDENTE") && <small>Recurso pendente</small>}</button>)}</div>
-    <section className="review-case"><h3>{selected.title}</h3><p><strong>{selected.studentName}</strong> · {selected.difficulty} · {time(selected.completedAt)} · nota atual <strong>{selected.evaluation.finalScore.toFixed(1)} / 10</strong></p><div className="review-actions"><form action={previewAppealRecalculation}><input type="hidden" name="sessionId" value={selected.id}/><button type="submit" disabled={pending.length > 0}>Calcular prévia dos recursos</button></form><form action={recalculateEvaluation}><input type="hidden" name="sessionId" value={selected.id}/><button type="submit" disabled={pending.length > 0}>Aplicar nota recalculada</button></form><form action={sendRecalculatedEvaluationEmail}><input type="hidden" name="sessionId" value={selected.id}/><button type="submit">Enviar nova nota por e-mail</button></form></div>{pending.length > 0 && <p className="panel-subtitle">Salve as marcações pendentes antes de calcular ou aplicar a nota.</p>}</section>
+    <section className="review-case"><h3>{selected.title}</h3><p><strong>{selected.studentName}</strong> · {selected.difficulty} · {time(selected.completedAt)} · nota atual <strong>{selected.evaluation.finalScore.toFixed(1)} / 10</strong></p><ReviewActions sessionId={selected.id} pending={pending.length > 0} appeals={selected.appeals}/>{pending.length > 0 && <p className="panel-subtitle">Salve as marcações pendentes antes de calcular ou aplicar a nota.</p>}</section>
     {selected.appeals.map((appeal) => <section className="appeal-admin" key={appeal.id}><h3>Recurso de nota · {appeal.status.toLowerCase()}</h3><p className="panel-subtitle">Enviado em {time(appeal.createdAt)} · nota original {appeal.previousScore.toFixed(1)} / 10{appeal.recalculatedScore === null ? "" : ` · prévia ${appeal.recalculatedScore.toFixed(1)} / 10`}.</p><ul>{appeal.items.map((item) => <li key={item.id}><span className="annotation-badge" style={{ backgroundColor: annotationMeta[item.annotationType].color }}>{annotationMeta[item.annotationType].label}</span><p><q>{item.selectedText}</q></p><form action={decideEvaluationAppealItem}><input type="hidden" name="appealId" value={appeal.id}/><input type="hidden" name="appealItemId" value={item.id}/><select name="decision" defaultValue={item.decision}><option value="PENDENTE" disabled>Pendente</option><option value="ACEITO">Aceitar item</option><option value="REJEITADO">Rejeitar item</option></select><button type="submit">Salvar decisão</button></form></li>)}</ul></section>)}
     <details className="review-system-report"><summary>Relatório gerado pelo sistema</summary><ul>{selected.evaluation.calculation.itens?.map((item) => <li key={item.titulo}><strong>{item.titulo}</strong>: {item.ajuste >= 0 ? "+" : ""}{item.ajuste.toFixed(1)} — {item.estado}. {item.evidencia}</li>)}</ul><h3>Acertos</h3><ul>{selected.evaluation.calculation.acertos?.map((item) => <li key={item}>{item}</li>)}</ul><h3>Ajustes</h3><ul>{selected.evaluation.calculation.melhorias?.map((item) => <li key={item}>{item}</li>)}</ul></details>
     <section className="review-workspace"><div className="review-transcript-column"><h3>Transcrição para revisão</h3><p className="panel-subtitle">Clique em ⌁ para selecionar uma ou várias falas e aplique as ferramentas pela barra fixa.</p><div className="review-transcript">{selected.transcript.map((turn) => { const marks = byTurn.get(turn.id) ?? []; const primary = marks[0] && annotationMeta[marks[0].annotationType]; return <article className={`turn turn-${turn.speaker.toLowerCase()} review-turn${selectedTurn(turn.id) ? " review-turn-selected" : ""}`} key={turn.id} style={primary ? { backgroundColor: primary.color } : undefined}><div className="review-turn-head"><strong>{labels[turn.speaker]}</strong><button type="button" className="review-select-turn" aria-label={`Alternar seleção da fala de ${labels[turn.speaker]}`} aria-pressed={selectedTurn(turn.id)} onClick={() => { toggleTurn(turn); setMessage(null); }}>⌁</button></div><p>{turn.content}</p>{marks.length > 0 && <div className="review-turn-labels">{marks.map((mark) => <span key={mark.id} title={annotationMeta[mark.annotationType].description}>{annotationMeta[mark.annotationType].label}</span>)}</div>}</article>; })}</div></div><aside className="review-tool-sidebar"><div className="review-tool-sidebar-inner"><h3>Ferramentas</h3><div className="review-selection-actions">{selections.length > 0 ? <p className="review-selection">{selections.length} fala(s) selecionada(s).</p> : <p className="panel-subtitle">Selecione uma ou mais falas.</p>}{selections.length > 0 && <button type="button" onClick={() => setSelections([])}>Limpar seleção</button>}</div><label>Observação opcional<textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1500} disabled={selections.length === 0} placeholder="Explique a marcação, se necessário."/></label><div className="review-tool-buttons">{annotationTypes.map((type) => <button type="button" key={type} className="review-tool-button" style={{ borderColor: annotationMeta[type].color }} disabled={selections.length === 0} onMouseDown={(event) => event.preventDefault()} onClick={() => applyTool(type)}><i style={{ backgroundColor: annotationMeta[type].color }}/><span>{annotationMeta[type].label}</span><small>{annotationMeta[type].description}</small></button>)}</div>{pending.length > 0 && <button type="button" onClick={() => void saveDrafts()} disabled={saving}>{saving ? "Salvando marcações..." : `Salvar ${pending.length} marcação(ões) pendente(s)`}</button>}{message && <p className="review-status" role="status">{message}</p>}</div></aside></section>
