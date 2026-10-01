@@ -1,10 +1,12 @@
 # Configurar os avisos por e-mail
 
-1. Crie uma conta em [resend.com](https://resend.com) e, em **API Keys**, crie uma chave de envio.
+1. Crie uma conta gratuita no [Brevo](https://www.brevo.com), crie uma chave de API e confirme um remetente.
 2. No Vercel, abra o projeto do CATTS em **Settings → Environment Variables**.
-3. Cadastre `RESEND_API_KEY` com a chave criada.
-4. Cadastre `RESEND_FROM` com um remetente verificado no Resend, por exemplo `CATTS <avisos@seudominio.com>`. Para testes, o remetente padrão do Resend pode ter restrições de destinatário.
+3. Cadastre `BREVO_API_KEY` como **Secret** com a chave do Brevo.
+4. Cadastre `BREVO_FROM` como **Config**, no formato `CATTS <seu-email-verificado@exemplo.com>`.
 5. Cadastre `ADMIN_NOTIFICATION_EMAIL` com `juanhanzi@gmail.com`.
-6. Marque Production, Preview e Development, salve e faça um novo deploy.
+6. Marque Production e Preview, salve e faça um novo deploy.
 
-Sem essas três variáveis, o CATTS continua avaliando normalmente; o painel apenas registra que o e-mail está pendente.
+O Brevo é usado automaticamente quando as duas variáveis `BREVO_*` estão presentes. `RESEND_API_KEY` e `RESEND_FROM` permanecem apenas como alternativa quando o Brevo ainda não foi configurado. Uma falha de entrega do Brevo é registrada; não há reenvio automático pelo Resend para evitar mensagens duplicadas.
+
+Sem essas variáveis, o CATTS continua avaliando normalmente; o painel apenas registra que o e-mail está pendente.

@@ -14,11 +14,14 @@ das marcações salvas e ter a nota corrigida enviada ao aluno.
 - Ao encerrar uma simulação, registrar uma notificação de revisão e tentar
   enviar um e-mail para `ADMIN_NOTIFICATION_EMAIL`.
 - O e-mail contém aluno, nota, horário e link direto ao relatório no painel.
-- A indisponibilidade de `RESEND_API_KEY` ou uma falha no provedor nunca
+- A indisponibilidade de `BREVO_API_KEY` e `BREVO_FROM`, ou uma falha no provedor, nunca
   impede o encerramento da simulação. O painel exibe o estado pendente/erro e
   permite reenvio.
-- As configurações serão lidas de `RESEND_API_KEY`, `RESEND_FROM` e
-  `ADMIN_NOTIFICATION_EMAIL` (inicialmente `juanhanzi@gmail.com`).
+- As configurações serão lidas prioritariamente de `BREVO_API_KEY` e `BREVO_FROM`.
+  Sem as duas configurações do Brevo, `RESEND_API_KEY` e `RESEND_FROM` serão a
+  alternativa temporária; falhas de entrega do Brevo não acionam o Resend para
+  evitar mensagens duplicadas. `ADMIN_NOTIFICATION_EMAIL` inicia como
+  `juanhanzi@gmail.com`
 
 ### Revisão administrativa
 
@@ -62,7 +65,7 @@ das marcações salvas e ter a nota corrigida enviada ao aluno.
 
 - Testes unitários para a composição da nota com marcações revisadas.
 - Testes de permissão para ações administrativas e apontamentos do aluno.
-- Testes do adaptador de e-mail com provedor simulado, incluindo falha sem
-  interromper o encerramento.
+- Testes do adaptador de e-mail com provedor simulado, incluindo a prioridade
+  do Brevo e falha sem interromper o encerramento.
 - Build de produção e verificação manual dos fluxos de recálculo, reenvio e
   apontamento.

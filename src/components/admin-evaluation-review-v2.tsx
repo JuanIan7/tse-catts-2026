@@ -47,7 +47,7 @@ function ReviewActions({ sessionId, pending, appeals }: { sessionId: string; pen
       <button type="button" disabled={running !== null} onClick={() => void run("email", sendRecalculatedEvaluationEmail, "Nova nota enviada por e-mail ao aluno.")}>{running === "email" ? "Enviando e-mail..." : "Enviar nova nota por e-mail"}</button>
     </div>
     {!hasDecidedAppeal && <p className="panel-subtitle">Aceite ao menos um item de recurso para liberar a prévia.</p>}
-    <p className="panel-subtitle">O Resend está em modo de testes: para enviar a alunos, valide um domínio no Resend e use esse domínio em <code>RESEND_FROM</code>.</p>
+    <p className="panel-subtitle">O envio usa o Brevo quando <code>BREVO_API_KEY</code> e <code>BREVO_FROM</code> estão configurados. Sem elas, o sistema usa o Resend como alternativa.</p>
     {message && <p className="review-status" role="status">{message}</p>}
   </>;
 }
