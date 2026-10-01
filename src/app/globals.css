@@ -171,6 +171,7 @@ th { color:#5d5e56; font-size:.74rem; letter-spacing:.08em; text-transform:upper
 .review-selection-actions button { padding:.42rem .6rem; font-size:.75rem; }
 .appeal-admin { margin-top:.9rem; padding:.85rem; border:1px solid #e5dba8; border-radius:12px; background:#fffdf4; }
 .appeal-admin h3 { margin-bottom:.3rem; }
+.appeal-sender { margin:.35rem 0; padding:.55rem .65rem; border-left:3px solid #b79a32; border-radius:5px; background:#fff7d7; color:#50451d; font-size:.88rem; overflow-wrap:anywhere; }
 .appeal-admin ul { display:grid; gap:.5rem; list-style:none; padding:0; margin:.75rem 0; }
 .appeal-admin li { padding:.65rem .7rem; border:1px solid var(--line); border-radius:9px; background:#fff; }
 .appeal-admin li p { margin:.35rem 0; line-height:1.35; }
