@@ -2,7 +2,7 @@ import "server-only";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { respondAsCharacter } from "./character";
 import { acceptDignifiedExit, applyDidacticSignals, calculateDidacticEvaluation, readDidacticState, recordInterruption, registerInitialSilence as registerInitialSilenceState, seriousOccurrenceCount } from "./didactic-state";
-import { detectSevereOccurrences, isPlainEndPhrase } from "./severe-occurrence";
+import { detectSevereOccurrences } from "./severe-occurrence";
 import { isPersonalPresentation } from "./personal-presentation";
 import { openAIErrorMessage } from "./openai-error";
 import type { Difficulty, InternalCase } from "./session-case";
@@ -11,6 +11,8 @@ import { sessionDurationMs } from "./session-timer";
 import { evaluateCompletedTranscript } from "./final-evaluation";
 import { normalizePublicBriefing } from "./briefing";
 import { notifyEvaluationCompleted } from "@/lib/notifications/evaluation-notification";
+import { analyzeTranscriptEvidence, didacticSignalsFromEvidence, hasAcceptedSafeExit, isSafeMedicalOffer } from "./transcript-evidence";
+import { dignifiedExitOfferState, mayFinalizeDignifiedExit } from "./dignified-exit-protocol";
 
 type Speaker = "ALUNO" | "PERSONAGEM" | "NARRADOR" | "SISTEMA";
 type Source = "TEXTO" | "VOZ" | "SISTEMA";
@@ -90,10 +92,24 @@ function positiveItem(state: ReturnType<typeof readDidacticState>, id: string) {
   return status === "feito" || status === "adequado" || status === "encontrou_explorou" || status === "encontrou_isolou";
 }
 
-function mayAcceptDignifiedExit(session: SessionRecord, state: ReturnType<typeof readDidacticState>) {
+function positiveSignal(signals: { item_id: string; estado: string }[], id: string) {
+  return signals.some((signal) => signal.item_id === id && ["feito", "adequado", "encontrou_explorou", "encontrou_isolou"].includes(signal.estado));
+}
+
+function anticipatedPositiveItem(state: ReturnType<typeof readDidacticState>, signals: { item_id: string; estado: string }[], id: string) {
+  return positiveItem(state, id) || positiveSignal(signals, id);
+}
+
+function mayAcceptDignifiedExit(session: SessionRecord, state: ReturnType<typeof readDidacticState>, acceptedMedicalOffer: boolean) {
   const tools = ["parafrase_resumida", "memoria_linkada", "maieutica_ou_teia", "desistencia_ou_saida_digna"];
-  const hasRequirements = positiveItem(state, "fatores_protecao") && positiveItem(state, "fatores_risco") && tools.filter((id) => positiveItem(state, id)).length >= 2;
-  return hasRequirements && activeElapsedMs(session) >= sessionDurationMs[session.difficulty] * 0.7;
+  return mayFinalizeDignifiedExit({
+    acceptedMedicalOffer,
+    hasProtection: positiveItem(state, "fatores_protecao"),
+    hasRisk: positiveItem(state, "fatores_risco"),
+    toolCount: tools.filter((id) => positiveItem(state, id)).length,
+    activeElapsedMs: activeElapsedMs(session),
+    durationMs: sessionDurationMs[session.difficulty],
+  });
 }
 
 async function finalizeSevereOccurrenceLimit(input: { userId: string; sessionId: string; occurrences: number }) {
@@ -190,10 +206,10 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
   }
   const didacticState = readDidacticState(session.didactic_state);
   const admin = createSupabaseAdminClient();
-  const { data: rawHistory } = await admin.from("training_transcripts").select("speaker, content, created_at").eq("session_id", input.sessionId).eq("delivery_status", "OUVIDO").order("sequence_number", { ascending: false }).limit(8);
-  const newestStudentTurn = (rawHistory ?? []).find((turn) => turn.speaker === "ALUNO");
+  const { data: rawHistory } = await admin.from("training_transcripts").select("speaker, content, created_at").eq("session_id", input.sessionId).eq("delivery_status", "OUVIDO").order("sequence_number", { ascending: true });
+  const newestStudentTurn = [...(rawHistory ?? [])].reverse().find((turn) => turn.speaker === "ALUNO");
   if (newestStudentTurn && Date.now() - new Date(newestStudentTurn.created_at).getTime() < 2000) throw new Error("Aguarde dois segundos antes de enviar outra fala.");
-  const history = (rawHistory ?? []).reverse().map((turn) => ({ speaker: turn.speaker as Speaker, content: turn.content })) as TranscriptTurn[];
+  const history = (rawHistory ?? []).map((turn) => ({ speaker: turn.speaker as Speaker, content: turn.content })) as TranscriptTurn[];
   const { data: secret } = await admin.from("training_session_secrets").select("internal_case").eq("session_id", input.sessionId).maybeSingle();
   if (!secret) throw new Error("Ficha pedagógica indisponível.");
 
@@ -208,17 +224,32 @@ export async function recordStudentTurn(input: { userId: string; sessionId: stri
   await transitionToActive(session);
   await appendTranscript(input.sessionId, "ALUNO", content, input.source, "OUVIDO");
   const deliveryStatus: DeliveryStatus = input.source === "VOZ" ? "PENDENTE" : "OUVIDO";
+  const caseData = secret.internal_case as InternalCase;
+  const evidenceBeforeCharacter = analyzeTranscriptEvidence(caseData, [...history, { speaker: "ALUNO", content }]);
   const deterministicEvidence = isPersonalPresentation(content)
     ? [{ item_id: "apresentacao_pessoal", estado: "feito", evidencia: `Apresentação identificada: ${content.slice(0, 300)}` }]
     : [];
+  const baseSignals = [...(input.source === "TEXTO" ? character.evidencias : []), ...deterministicEvidence, ...didacticSignalsFromEvidence(evidenceBeforeCharacter)];
+  const otherToolIds = ["parafrase_resumida", "memoria_linkada", "maieutica_ou_teia"];
+  const exitState = dignifiedExitOfferState({
+    safeMedicalOffer: isSafeMedicalOffer({ speaker: "ALUNO", content }),
+    priorOfferCount: didacticState.itens.desistencia_ou_saida_digna?.evidencias.length ?? 0,
+    hasProtection: positiveItem(didacticState, "fatores_protecao") || evidenceBeforeCharacter.protection.length > 0 || positiveSignal(baseSignals, "fatores_protecao"),
+    hasRisk: positiveItem(didacticState, "fatores_risco") || evidenceBeforeCharacter.risk.length > 0 || positiveSignal(baseSignals, "fatores_risco"),
+    otherToolCount: otherToolIds.filter((id) => anticipatedPositiveItem(didacticState, baseSignals, id)).length,
+    activeElapsedMs: activeElapsedMs(session),
+    durationMs: sessionDurationMs[session.difficulty],
+  });
+  const exitSignal = exitState ? [{ item_id: "desistencia_ou_saida_digna", estado: exitState, evidencia: content.slice(0, 500) }] : [];
   const preliminaryState = applyDidacticSignals(didacticState, {
-    rapport_delta: character.rapport_delta,
-    categorias_reveladas: character.categorias_reveladas,
-    evidencias: [...character.evidencias, ...deterministicEvidence],
+    rapport_delta: input.source === "TEXTO" ? character.rapport_delta : 0,
+    categorias_reveladas: input.source === "TEXTO" ? character.categorias_reveladas : [],
+    evidencias: [...baseSignals, ...exitSignal],
     erros_graves: [],
     acceptsExit: false,
   });
-  const acceptsExit = character.aceita_saida_digna && !isPlainEndPhrase(content) && mayAcceptDignifiedExit(session, preliminaryState);
+  const prospectiveEvidence = analyzeTranscriptEvidence(caseData, [...history, { speaker: "ALUNO", content }, { speaker: "PERSONAGEM", content: character.fala }]);
+  const acceptsExit = mayAcceptDignifiedExit(session, preliminaryState, hasAcceptedSafeExit(prospectiveEvidence));
   const deterministicErrors = detectSevereOccurrences(content);
   // Deduções graves precisam ser determinísticas e vinculadas à fala literal
   // do aluno. A leitura probabilística do personagem não pode retirar pontos.

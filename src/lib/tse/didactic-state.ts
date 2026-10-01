@@ -88,7 +88,7 @@ export function applyDidacticSignals(current: DidacticState, input: { rapport_de
     if (category === "PROTECAO") state.categorias_reveladas.protecao = clamp(state.categorias_reveladas.protecao + 1, 0, 3);
     if (category === "VINCULO") state.categorias_reveladas.vinculo = clamp(state.categorias_reveladas.vinculo + 1, 0, 3);
   }
-  for (const signal of input.evidencias.slice(0, 5)) {
+  for (const signal of input.evidencias.slice(0, 12)) {
     if (!dialogueObservableItems.has(signal.item_id) || !knownItem(signal.item_id, signal.estado)) continue;
     const evidence = cleanEvidence(signal.evidencia);
     if (!evidence) continue;

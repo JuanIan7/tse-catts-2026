@@ -114,7 +114,8 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
   }
 
   async function confirmDelivery(turnId: string, interrupted: boolean) {
-    await request("/api/sessions/" + sessionId + "/delivery", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turnId, interrupted }) });
+    const response = await request("/api/sessions/" + sessionId + "/delivery", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turnId, interrupted }) });
+    return response.json() as Promise<{ completed?: boolean }>;
   }
 
   async function setClockActivity(activity: "PAUSED" | "VOICE_STUDENT" | "VOICE_CHARACTER") {
@@ -261,7 +262,10 @@ export function VoiceConversation({ sessionId, lastCharacterTurn, pendingCharact
       playingTurnRef.current = null;
       setPhase("idle"); setStatus("Sua vez de falar."); setReplayTurn(null);
       if (turn.pending) {
-        await confirmDelivery(turn.id, false).then(() => { if (pendingCharacterTurn?.id === turn.id) { setPendingReplayDone(true); window.setTimeout(() => window.location.reload(), 250); } }).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
+        await confirmDelivery(turn.id, false).then((result) => {
+          if (result.completed) { window.location.reload(); return; }
+          if (pendingCharacterTurn?.id === turn.id) { setPendingReplayDone(true); window.setTimeout(() => window.location.reload(), 250); }
+        }).catch((cause) => setError(cause instanceof Error ? cause.message : "A resposta foi ouvida, mas não foi confirmada."));
       }
     };
     const prepared = blob ? { blob, turn } : { blob: await (await request(`/api/sessions/${sessionId}/speech?turnId=${encodeURIComponent(turn.id)}`, { cache: "no-store" })).blob(), turn };

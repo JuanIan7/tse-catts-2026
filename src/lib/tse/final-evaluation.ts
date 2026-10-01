@@ -5,6 +5,7 @@ import { calculateEvaluation, type ErrorSubmission, type EvaluationSubmission, t
 import { toEvaluationSubmission, type DidacticState } from "./didactic-state";
 import { detectDialogueTools, dialogueControlState, questionKinds } from "./dialogue-tools";
 import type { InternalCase, PublicBriefing } from "./session-case";
+import { analyzeTranscriptEvidence, factorItemsFromEvidence, hasAcceptedSafeExit, type TranscriptEvidence } from "./transcript-evidence";
 
 type Transcript = { speaker: string; content: string; delivery_status: string };
 type FinalExtras = { acertos: string[]; melhorias: string[]; linha_evolucao: { fala: string; observacao: string }[] };
@@ -30,8 +31,12 @@ function itemAdjustment(id: string, entry: ItemSubmission) {
 
 function mergeFinalItems(baseline: EvaluationSubmission["itens"], candidate: unknown): EvaluationSubmission["itens"] {
   const proposed = candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate as Record<string, unknown> : {};
+  const factors = new Set(["fatores_protecao", "fatores_risco", "fator_principal"]);
   return Object.fromEntries(rubric.itens.map((item) => {
     const recorded = baseline[item.id];
+    // A fração de fatores é comprovada pela ficha e pela transcrição. O modelo
+    // pode explicar o resultado, mas não pode apagar nem inflar esse cálculo.
+    if (factors.has(item.id)) return [item.id, recorded];
     const parsed = validFinalItem(proposed[item.id]);
     if (!parsed || itemAdjustment(item.id, parsed) <= itemAdjustment(item.id, recorded)) return [item.id, recorded];
     if (!(parsed.estado in item.estados)) return [item.id, recorded];
@@ -39,12 +44,14 @@ function mergeFinalItems(baseline: EvaluationSubmission["itens"], candidate: unk
   }));
 }
 
-function deterministicToolItems(transcript: Transcript[]): Record<string, ItemSubmission> {
-  const tools = detectDialogueTools(transcript);
+function deterministicToolItems(transcript: Transcript[], evidence: TranscriptEvidence, acceptedProtocolExit: boolean): Record<string, ItemSubmission> {
+  const tools = evidence.tools ?? detectDialogueTools(transcript);
   const items: Record<string, ItemSubmission> = {
     ...(tools.parafrase ? { parafrase_resumida: { estado: "feito", evidencia: `Paráfrase resumida identificada: ${tools.parafrase}` } } : {}),
     ...(tools.memoria ? { memoria_linkada: { estado: "feito", evidencia: `Memória linkada identificada: ${tools.memoria}` } } : {}),
     ...(tools.teia ? { maieutica_ou_teia: { estado: "feito", evidencia: `Teia de indução identificada: ${tools.teia}` } } : {}),
+    ...(acceptedProtocolExit && evidence.exit.offer ? { desistencia_ou_saida_digna: { estado: "feito", evidencia: `Oferta segura de ambulância/hospital identificada: ${evidence.exit.offer.content}` } } : {}),
+    ...(acceptedProtocolExit && hasAcceptedSafeExit(evidence) ? { conduziu_solucao: { estado: "feito", evidencia: `Solução segura aceita pelo tentante: ${evidence.exit.acceptance?.content ?? "aceitação registrada"}` } } : {}),
   };
   const questions = questionKinds(transcript);
   if (questions.simple && questions.complex) items.perguntas_simples_complexas = { estado: "feito", evidencia: `Pergunta simples e aprofundamento identificados: ${questions.simple} / ${questions.complex}` };
@@ -62,9 +69,34 @@ function applyDialogueControl(items: EvaluationSubmission["itens"], transcript: 
   return { ...items, dominou_dialogo: { estado: state, evidencia: evidence } };
 }
 
-function fallback(state: DidacticState, internalCase: InternalCase, reason: string) {
+function confirmedErrors(state: DidacticState) {
+  return Object.fromEntries(Object.entries(toEvaluationSubmission(state).erros_graves ?? {}).filter(([, entry]) => appliedError(entry)));
+}
+
+function completedBaseline(state: DidacticState, internalCase: InternalCase, transcript: Transcript[], acceptedProtocolExit: boolean) {
+  const baseline = toEvaluationSubmission(state);
+  const evidence = analyzeTranscriptEvidence(internalCase, transcript);
+  const deterministicFactors = factorItemsFromEvidence(internalCase, evidence);
+  for (const id of ["fatores_protecao", "fatores_risco", "fator_principal"]) {
+    const deterministic = deterministicFactors[id as keyof typeof deterministicFactors];
+    if (deterministic) {
+      baseline.itens[id] = deterministic;
+      continue;
+    }
+    // Sinais válidos já registrados ao vivo continuam como piso. A análise
+    // final não pode retirar um crédito somente porque a nova heurística não
+    // encontrou a mesma formulação textual.
+    if (itemAdjustment(id, baseline.itens[id]) > 0) continue;
+    baseline.itens[id] = { estado: "nao_encontrou", evidencia: "Nenhuma evidência comprovada deste fator foi encontrada na transcrição." };
+  }
+  return { baseline, evidence, items: mergeFinalItems(baseline.itens, deterministicToolItems(transcript, evidence, acceptedProtocolExit)) };
+}
+
+function fallback(state: DidacticState, internalCase: InternalCase, transcript: Transcript[], partial: boolean, reason: string) {
+  const { items } = completedBaseline(state, internalCase, transcript, !partial);
+  const calculation = calculateEvaluation({ parcial: partial, itens: applyDialogueControl(items, transcript), erros_graves: confirmedErrors(state) });
   return {
-    ...calculateEvaluation(toEvaluationSubmission(state)),
+    ...calculation,
     ficha_caso: { fator_principal: internalCase.fator_principal, fatores_risco: internalCase.fatores_risco, fatores_protecao: internalCase.fatores_protecao, perfil: internalCase.perfil_tipo ?? "NÃO ESPECIFICADO" },
     acertos: [], melhorias: ["Não foi possível concluir a análise textual final; a pontuação usa apenas evidências registradas durante a sessão."],
     linha_evolucao: [], motivo_encerramento: reason,
@@ -73,14 +105,10 @@ function fallback(state: DidacticState, internalCase: InternalCase, reason: stri
 
 export async function evaluateCompletedTranscript(input: { state: DidacticState; internalCase: InternalCase; briefing: PublicBriefing; transcript: Transcript[]; partial: boolean; reason: string }) {
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return fallback(input.state, input.internalCase, input.reason);
+  const deliveredTranscript = input.transcript.filter((turn) => turn.delivery_status === "OUVIDO");
+  const { baseline, items: deterministicItems } = completedBaseline(input.state, input.internalCase, deliveredTranscript, !input.partial);
+  if (!key) return fallback(input.state, input.internalCase, deliveredTranscript, input.partial, input.reason);
   const allowed = Object.fromEntries(rubric.itens.map((item) => [item.id, Object.keys(item.estados)]));
-  const baseline = toEvaluationSubmission(input.state);
-  // A fração de fatores só pode ser definida após confrontar toda a transcrição
-  // com todos os fatores do caso; sinais em tempo real não antecipam esse crédito.
-  for (const id of ["fatores_protecao", "fatores_risco", "fator_principal"]) {
-    baseline.itens[id] = { estado: "nao_encontrou", evidencia: "Aguardando conferência da transcrição completa." };
-  }
   const visibleTranscript = input.transcript
     .filter((turn) => turn.delivery_status === "OUVIDO" || turn.speaker === "SISTEMA")
     .map((turn) => ({ speaker: turn.speaker, content: turn.content.slice(0, 1200) }));
@@ -89,7 +117,7 @@ export async function evaluateCompletedTranscript(input: { state: DidacticState;
     "Aproximação calma e silenciosa, respeito às pausas, espaço para desabafo, escuta e tom adequado recebem crédito protocolar automático. Só retire escuta/domínio se o aluno repetir, esquecer ou trocar fato já dito; só retire tom se houver grito textual inequívoco. Silêncio inicial exige evento de sistema; apresentação exige nome E Bombeiros/CBMERJ.",
     "Perguntas: uma simples de sim/não OU uma complexa vale parcial (0.5); ambas valem feito (1.0). Complexa aprofunda uma simples. Paráfrase exige resumo de fatos e pergunta. Memória linkada é convite a lembrança positiva passada ou futura. Maiêutica OU TED valem integralmente: perguntas encadeadas que conduzem a conclusão, ou duas alternativas positivas desejadas.",
     "Saída digna: convite simples a sair da cena, sem ambulância/cuidado especializado, vale parcial (0.5). Ambulância e atendimento médico especializado valem 1.0 somente quando a oferta é segura e plausível. Condução à solução vale 1.0 somente para solução legal, verdadeira e realizável, preferencialmente hospitalar; não há parcial. Domínio vale 0.3 se achou um risco, uma proteção e usou ferramenta sem erros de memória; 0.15 com exatamente um erro de memória; zero com dois ou mais.",
-    "FATORES — avalie a transcrição inteira, nunca a ficha sozinha. Para proteção/risco, cada fator descoberto pelo aluno vale 1 dividido pelo total daquele tipo no caso. Use estado encontrou_explorou/isolu e acrescente ajuste numérico exato (por exemplo 0.3 ou 0.5). Pontue apenas quando personagem revelou e aluno identificou/retomou. Se o aluno retomar literalmente uma separação, perda, isolamento, violência ou outro problema que o personagem revelou, isso é fator de risco e não pode ficar zerado. Fator principal vale 1.0 exclusivamente se o aluno captou o gatilho recente que precipitou a crise naquele momento. Evidência deve citar fala do personagem e resposta do aluno.",
+    "FATORES — a base já contém a fração determinística encontrada na transcrição. Não reduza, aumente ou invente fatores; use as evidências fornecidas para explicar a devolutiva. Fator revelado pelo personagem ou identificado pelo aluno é válido. Fator principal exige o gatilho recente que precipitou a crise.",
     "Erros graves somente quando houver fala literal inequívoca. Não crie fatos nem instrua sobre autoagressão.",
     "Retorne JSON com itens, erros_graves, acertos (máx. 4), melhorias (máx. 4), linha_evolucao (máx. 14). Cada item precisa de estado permitido e evidencia curta. Somente fatores_protecao e fatores_risco podem conter ajuste proporcional.",
     `ESTADOS PERMITIDOS: ${JSON.stringify(allowed)}`,
@@ -101,13 +129,11 @@ export async function evaluateCompletedTranscript(input: { state: DidacticState;
   try {
     const response = await new OpenAI({ apiKey: key }).responses.create({ model: "gpt-4o-mini", store: false, max_output_tokens: 2200, input: [{ role: "developer", content: prompt }, { role: "user", content: "Gere a avaliação final em JSON." }], text: { format: { type: "json_object" } } });
     const parsed = JSON.parse(response.output_text) as { itens?: EvaluationSubmission["itens"]; erros_graves?: EvaluationSubmission["erros_graves"]; acertos?: unknown; melhorias?: unknown; linha_evolucao?: unknown };
-    const confirmedErrors = Object.fromEntries(Object.entries(baseline.erros_graves ?? {}).filter(([, entry]) => appliedError(entry)));
+    const errors = confirmedErrors(input.state);
     // A análise final aprimora os itens, mas não cria deduções graves novas.
     // Elas exigem detecção objetiva registrada durante a conversa.
-    const modelItems = mergeFinalItems(baseline.itens, parsed.itens);
-    const deliveredTranscript = input.transcript.filter((turn) => turn.delivery_status === "OUVIDO");
-    const transcriptItems = mergeFinalItems(modelItems, deterministicToolItems(deliveredTranscript));
-    const submission: EvaluationSubmission = { parcial: input.partial, itens: applyDialogueControl(transcriptItems, input.transcript), erros_graves: confirmedErrors };
+    const modelItems = mergeFinalItems(deterministicItems, parsed.itens);
+    const submission: EvaluationSubmission = { parcial: input.partial, itens: applyDialogueControl(modelItems, deliveredTranscript), erros_graves: errors };
     const calculation = calculateEvaluation(submission);
     const extras: FinalExtras = {
       acertos: Array.isArray(parsed.acertos) ? parsed.acertos.filter((x): x is string => typeof x === "string").slice(0, 4) : [],
@@ -116,6 +142,6 @@ export async function evaluateCompletedTranscript(input: { state: DidacticState;
     };
     return { ...calculation, ficha_caso: { fator_principal: input.internalCase.fator_principal, fatores_risco: input.internalCase.fatores_risco, fatores_protecao: input.internalCase.fatores_protecao, perfil: input.internalCase.perfil_tipo ?? "NÃO ESPECIFICADO" }, ...extras, motivo_encerramento: input.reason };
   } catch {
-    return fallback(input.state, input.internalCase, input.reason);
+    return fallback(input.state, input.internalCase, deliveredTranscript, input.partial, input.reason);
   }
 }

@@ -35,6 +35,7 @@ const publicBriefingSchema = z.object({
 
 export type InternalCase = z.infer<typeof internalCaseSchema>;
 export type PublicBriefing = z.infer<typeof publicBriefingSchema>;
+export type CharacterProfile = NonNullable<InternalCase["perfil_tipo"]>;
 
 type ScenarioTemplate = {
   internalCase: InternalCase;
@@ -175,10 +176,14 @@ export function briefingNarration(briefing: PublicBriefing) {
   ].join(" ");
 }
 
-export function createSessionCase(difficulty: Difficulty, random = Math.random, recentTitles: string[] = []) {
+export function createSessionCase(difficulty: Difficulty, random = Math.random, recentTitles: string[] = [], lastProfile?: CharacterProfile) {
   const recent = new Set(recentTitles);
-  const eligible = caseLibrary.filter((template) => !recent.has(template.publicBriefing.titulo));
-  const choices = eligible.length ? eligible : caseLibrary;
+  const titleEligible = caseLibrary.filter((template) => !recent.has(template.publicBriefing.titulo));
+  const profileEligible = titleEligible.filter((template) => template.internalCase.perfil_tipo !== lastProfile);
+  const choices = profileEligible.length
+    ? profileEligible
+    : caseLibrary.filter((template) => template.internalCase.perfil_tipo !== lastProfile);
+  if (!choices.length) throw new Error("Não há perfil alternativo disponível para a próxima ocorrência.");
   const template = choices[Math.floor(random() * choices.length)];
   const internalCase = internalCaseSchema.parse({ ...template.internalCase, identidade: identityFor(template.internalCase, random) });
   const publicBriefing = publicBriefingSchema.parse({ ...template.publicBriefing, dificuldade: difficulty });

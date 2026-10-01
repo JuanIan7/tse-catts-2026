@@ -10,6 +10,8 @@ const itemForAnnotation: Partial<Record<ReviewAnnotation["annotationType"], stri
   MEMORIA_LINKADA: "memoria_linkada",
   MAIEUTICA_TED: "maieutica_ou_teia",
   SAIDA_DIGNA: "desistencia_ou_saida_digna",
+  DOMINOU_DIALOGO: "dominou_dialogo",
+  CONDUZIU_SOLUCAO: "conduziu_solucao",
   FATOR_PROTECAO: "fatores_protecao",
   FATOR_RISCO: "fatores_risco",
   FATOR_PRINCIPAL: "fator_principal",
@@ -61,7 +63,7 @@ export function recalculateEvaluationFromAnnotations(calculation: StoredCalculat
       const ajuste = Math.min(1, markCount(type) / Math.max(total, 1));
       apply(id, id === "fatores_protecao" ? "encontrou_explorou" : "encontrou_isolou", `${markCount(type)} fator(es) confirmado(s) pela revisão administrativa.`, ajuste);
     } else {
-      const target = id === "desistencia_ou_saida_digna" ? "feito" : stateFor(id, 1);
+      const target = id === "desistencia_ou_saida_digna" || id === "dominou_dialogo" || id === "conduziu_solucao" ? "feito" : stateFor(id, 1);
       apply(id, target, "Ferramenta confirmada pela revisão administrativa.");
     }
   }

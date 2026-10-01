@@ -35,4 +35,13 @@ describe("createSessionCase", () => {
     const next = createSessionCase("MEDIA", () => 0, [first.publicBriefing.titulo]);
     expect(next.publicBriefing.titulo).not.toBe(first.publicBriefing.titulo);
   });
+
+  it("nunca repete o último perfil do mesmo aluno", () => {
+    for (const previous of ["DEPRESSIVO", "AGRESSIVO", "PSICOTICO"] as const) {
+      for (const random of [0, 0.2, 0.5, 0.9]) {
+        const next = createSessionCase("MEDIA", () => random, [], previous);
+        expect(next.internalCase.perfil_tipo).not.toBe(previous);
+      }
+    }
+  });
 });
