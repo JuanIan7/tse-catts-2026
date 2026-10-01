@@ -111,6 +111,7 @@ th { color:#5d5e56; font-size:.74rem; letter-spacing:.08em; text-transform:upper
 .review-tool-button span { font-size:.82rem; font-weight:800; }
 .review-tool-button small { color:var(--muted); font-size:.7rem; line-height:1.25; }
 .review-status { margin:0; padding:.65rem .7rem; border-radius:8px; background:#edf6ef; color:#285c3d; font-size:.82rem; font-weight:700; }
+.review-status-error { background:#fff0ed; color:#9b3526; }
 .review-transcript { display:grid; gap:.7rem; max-height:44rem; overflow:auto; padding:.25rem; border:1px solid var(--line); border-radius:13px; background:#fbfbf8; }
 .review-turn { transition:background-color .15s ease, outline-color .15s ease; }
 .review-turn-selected { outline:3px solid var(--gold); outline-offset:2px; }

@@ -6,11 +6,13 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isAnnotationType, selectedTextForRange } from "@/lib/admin/evaluation-review";
 import { recalculateEvaluationFromAnnotations } from "@/lib/admin/recalculate-evaluation";
 import { appealStatusFor } from "@/lib/admin/evaluation-appeal";
-import { adminNotificationAddress, sendEvaluationEmail } from "@/lib/notifications/evaluation-email";
+import { adminNotificationAddress, evaluationMailProvider, sendEvaluationEmail } from "@/lib/notifications/evaluation-email";
+import { existingRecalculatedEmailMessage, recalculatedEmailFailureMessage, type RecalculatedEmailClaim } from "@/lib/notifications/recalculated-email-delivery";
 
 const allowed = new Set(["APROVADO", "RECUSADO", "BLOQUEADO"]);
 const appealDecisions = new Set(["ACEITO", "REJEITADO"]);
 const passwordConfirmationUrl = async () => `${(await headers()).get("origin") ?? "http://localhost:3000"}/auth/confirm?next=/password/change`;
+export type RecalculatedEmailActionResult = { ok: boolean; message: string };
 
 export async function inviteUser(formData: FormData) {
   await requireAdmin();
@@ -212,23 +214,66 @@ export async function decideEvaluationAppealItem(formData: FormData) {
   revalidatePath("/admin");
 }
 
-export async function sendRecalculatedEvaluationEmail(formData: FormData) {
-  await requireAdmin();
-  const sessionId = required(formData, "sessionId");
-  const admin = createSupabaseAdminClient();
-  const [{ data: evaluation }, { data: review, error: reviewError }] = await Promise.all([
-    admin.from("evaluations").select("user_id, final_score, result").eq("session_id", sessionId).maybeSingle(),
-    admin.from("evaluation_manual_reviews").select("id").eq("session_id", sessionId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-  ]);
-  if (!evaluation) throw new Error("Relatório de avaliação inválido.");
-  if (reviewError) throw new Error("Não foi possível confirmar o recálculo da avaliação.");
-  if (!review) throw new Error("Aplique a nota recalculada antes de enviá-la por e-mail.");
-  const { data: account, error: accountError } = await admin.auth.admin.getUserById(evaluation.user_id);
-  if (accountError || !account.user?.email) throw new Error(`Não foi possível localizar o e-mail do aluno${accountError?.message ? `: ${accountError.message}` : "."}`);
-  const mail = await sendEvaluationEmail({ to: account.user.email, subject: "CATTS — nota de abordagem atualizada", text: `Sua avaliação foi revisada pelo administrador. Nota atualizada: ${Number(evaluation.final_score).toFixed(1)} / 10. Acesse o CATTS para consultar o relatório.` });
-  try { await logNotification(sessionId, "STUDENT_RECALCULATED", account.user.email, mail.sent, mail.reason); } catch { /* O e-mail já foi processado; falha de auditoria não deve provocar reenvio. */ }
-  if (!mail.sent) throw new Error(mail.reason ?? "Não foi possível enviar o e-mail.");
-  revalidatePath("/admin");
+export async function sendRecalculatedEvaluationEmail(formData: FormData): Promise<RecalculatedEmailActionResult> {
+  try {
+    const { supabase } = await requireAdmin();
+    const sessionId = required(formData, "sessionId");
+    const admin = createSupabaseAdminClient();
+    const [{ data: evaluation }, { data: review, error: reviewError }] = await Promise.all([
+      admin.from("evaluations").select("user_id").eq("session_id", sessionId).maybeSingle(),
+      admin.from("evaluation_manual_reviews").select("id").eq("session_id", sessionId).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    if (!evaluation) return { ok: false, message: "Relatório de avaliação inválido." };
+    if (reviewError) return { ok: false, message: "Não foi possível confirmar o recálculo da avaliação." };
+    if (!review) return { ok: false, message: "Aplique a nota recalculada antes de enviá-la por e-mail." };
+
+    const { data: account, error: accountError } = await admin.auth.admin.getUserById(evaluation.user_id);
+    if (accountError || !account.user?.email) return { ok: false, message: "Não foi possível localizar o e-mail do aluno." };
+    const provider = evaluationMailProvider();
+    if (!provider) return { ok: false, message: "Configuração de e-mail pendente. Cadastre BREVO_API_KEY e BREVO_FROM." };
+    const { data: claims, error: claimError } = await supabase.rpc("claim_recalculated_evaluation_email", {
+      p_session_id: sessionId,
+      p_manual_review_id: review.id,
+      p_recipient: account.user.email,
+      p_provider: provider,
+    });
+    const claim = (claims?.[0] ?? null) as RecalculatedEmailClaim | null;
+    if (claimError || !claim) return { ok: false, message: "Não foi possível preparar o envio da nova nota. Execute a migração administrativa e tente novamente." };
+    if (!claim.claimed) return { ok: false, message: existingRecalculatedEmailMessage(claim) };
+
+    const mail = await sendEvaluationEmail({ to: account.user.email, subject: "CATTS — nota de abordagem atualizada", text: `Sua avaliação foi revisada pelo administrador. Nota atualizada: ${Number(claim.recalculated_score).toFixed(1)} / 10. Acesse o CATTS para consultar o relatório.`, idempotencyKey: review.id });
+    const finalStatus = mail.sent ? "SENT" : mail.confirmedNotSent ? "FAILED" : "PENDING";
+    const { data: closedClaim, error: closeClaimError } = await admin.from("evaluation_notification_log")
+      .update({ status: finalStatus, error_message: mail.reason, sent_at: mail.sent ? new Date().toISOString() : null })
+      .eq("manual_review_id", review.id)
+      .eq("kind", "STUDENT_RECALCULATED")
+      .eq("status", "PENDING")
+      .select("status")
+      .maybeSingle();
+    if (closeClaimError) {
+      if (mail.sent) return { ok: false, message: "O e-mail foi aceito, mas não foi possível registrar a confirmação. Não reenvie; atualize a página." };
+      return { ok: false, message: "Não foi possível registrar o resultado do envio. Atualize a página antes de tentar novamente." };
+    }
+    if (!closedClaim) {
+      const { data: latestClaim } = await admin.from("evaluation_notification_log")
+        .select("status")
+        .eq("manual_review_id", review.id)
+        .eq("kind", "STUDENT_RECALCULATED")
+        .maybeSingle();
+      if (latestClaim?.status === "SENT") {
+        return { ok: true, message: `Nova nota já foi enviada por e-mail para ${account.user.email}.` };
+      }
+      return { ok: false, message: "O estado do envio foi alterado em outra solicitação. Atualize a página antes de tentar novamente." };
+    }
+    if (!mail.sent) {
+      if (!mail.confirmedNotSent) return { ok: false, message: "Não foi possível confirmar o resultado do envio. Para evitar duplicidade, esta nota permanecerá bloqueada para novo envio." };
+      return { ok: false, message: recalculatedEmailFailureMessage(mail.reason) };
+    }
+    try { revalidatePath("/admin"); } catch { /* O e-mail já foi enviado; a atualização visual será feita pelo cliente. */ }
+    return { ok: true, message: `Nova nota enviada por e-mail para ${account.user.email}.` };
+  } catch (error) {
+    return { ok: false, message: "Não foi possível concluir o envio. Verifique a configuração de e-mail e tente novamente." };
+  }
 }
 
 export async function notifyAdminOfCompletedEvaluation(input: { sessionId: string; studentName: string; finalScore: number }) {

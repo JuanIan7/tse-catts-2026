@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { decideEvaluationAppealItem, deleteEvaluationAnnotation, previewAppealRecalculation, recalculateEvaluation, saveEvaluationAnnotation, saveEvaluationReviewNote, sendRecalculatedEvaluationEmail } from "@/app/admin/actions";
+import { decideEvaluationAppealItem, deleteEvaluationAnnotation, previewAppealRecalculation, recalculateEvaluation, saveEvaluationAnnotation, saveEvaluationReviewNote, sendRecalculatedEvaluationEmail, type RecalculatedEmailActionResult } from "@/app/admin/actions";
 import { annotationMeta, annotationTypes, type AnnotationType, type ReviewAnnotation } from "@/lib/admin/evaluation-review";
 import { ExportSessionPdf } from "@/components/export-session-pdf";
 
@@ -12,7 +12,8 @@ type AppealItem = { id: string; transcriptId: string; annotationType: Annotation
 type Appeal = { id: string; status: "PENDENTE" | "ACEITO" | "PARCIAL" | "REJEITADO"; createdAt: string; senderName: string; senderEmail: string; previousScore: number; recalculatedScore: number | null; items: AppealItem[] };
 export type AdminReviewSession = { id: string; title: string; difficulty: string; completedAt: string; studentName: string; transcript: Turn[]; evaluation: Evaluation; annotations: ReviewAnnotation[]; generalNote: string | null; appeals: Appeal[] };
 type Selection = { transcriptId: string; startOffset: number; endOffset: number; selectedText: string };
-type ReviewAction = (formData: FormData) => Promise<void>;
+type ReviewAction = (formData: FormData) => Promise<void | RecalculatedEmailActionResult>;
+type ReviewMessage = { text: string; tone: "success" | "error" };
 
 const labels: Record<Turn["speaker"], string> = { ALUNO: "Você", PERSONAGEM: "Tentante", NARRADOR: "Narrador", SISTEMA: "Sistema" };
 const time = (value: string) => new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
@@ -21,34 +22,43 @@ const selectionFor = (turn: Turn): Selection => ({ transcriptId: turn.id, startO
 function ReviewActions({ sessionId, pending, appeals }: { sessionId: string; pending: boolean; appeals: Appeal[] }) {
   const router = useRouter();
   const [running, setRunning] = useState<"preview" | "apply" | "email" | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<ReviewMessage | null>(null);
+  const [isTransitioning, startTransition] = useTransition();
   const hasDecidedAppeal = appeals.some((appeal) => appeal.status === "ACEITO" || appeal.status === "PARCIAL");
 
-  const run = async (kind: "preview" | "apply" | "email", action: ReviewAction, success: string) => {
+  const run = (kind: "preview" | "apply" | "email", action: ReviewAction, success: string) => {
+    if (running !== null || isTransitioning) return;
     setRunning(kind);
     setMessage(null);
     const formData = new FormData();
     formData.set("sessionId", sessionId);
-    try {
-      await action(formData);
-      setMessage(success);
-      router.refresh();
-    } catch (error) {
-      setMessage(error instanceof Error && error.message ? error.message : "Não foi possível concluir esta ação. Tente novamente.");
-    } finally {
-      setRunning(null);
-    }
+    startTransition(async () => {
+      try {
+        const result = await action(formData);
+        if (result) {
+          setMessage({ text: result.message, tone: result.ok ? "success" : "error" });
+          if (result.ok) router.refresh();
+          return;
+        }
+        setMessage({ text: success, tone: "success" });
+        router.refresh();
+      } catch (error) {
+        setMessage({ text: error instanceof Error && error.message ? error.message : "Não foi possível concluir esta ação. Tente novamente.", tone: "error" });
+      } finally {
+        setRunning(null);
+      }
+    });
   };
 
   return <>
     <div className="review-actions">
-      <button type="button" disabled={pending || !hasDecidedAppeal || running !== null} title={!hasDecidedAppeal ? "Aceite ao menos um item de recurso para calcular a prévia." : undefined} onClick={() => void run("preview", previewAppealRecalculation, "Prévia do recurso calculada e disponível para conferência.")}>{running === "preview" ? "Calculando prévia..." : "Calcular prévia dos recursos"}</button>
-      <button type="button" disabled={pending || running !== null} onClick={() => void run("apply", recalculateEvaluation, "Nota recalculada e aguardando seu envio ao aluno.")}>{running === "apply" ? "Aplicando nota..." : "Aplicar nota recalculada"}</button>
-      <button type="button" disabled={running !== null} onClick={() => void run("email", sendRecalculatedEvaluationEmail, "Nova nota enviada por e-mail ao aluno.")}>{running === "email" ? "Enviando e-mail..." : "Enviar nova nota por e-mail"}</button>
+      <button type="button" disabled={pending || !hasDecidedAppeal || running !== null || isTransitioning} title={!hasDecidedAppeal ? "Aceite ao menos um item de recurso para calcular a prévia." : undefined} onClick={() => run("preview", previewAppealRecalculation, "Prévia do recurso calculada e disponível para conferência.")}>{running === "preview" ? "Calculando prévia..." : "Calcular prévia dos recursos"}</button>
+      <button type="button" disabled={pending || running !== null || isTransitioning} onClick={() => run("apply", recalculateEvaluation, "Nota recalculada e aguardando seu envio ao aluno.")}>{running === "apply" ? "Aplicando nota..." : "Aplicar nota recalculada"}</button>
+      <button type="button" disabled={running !== null || isTransitioning} onClick={() => run("email", sendRecalculatedEvaluationEmail, "Nova nota enviada por e-mail ao aluno.")}>{running === "email" ? "Enviando e-mail..." : "Enviar nova nota por e-mail"}</button>
     </div>
     {!hasDecidedAppeal && <p className="panel-subtitle">Aceite ao menos um item de recurso para liberar a prévia.</p>}
-    <p className="panel-subtitle">O envio usa o Brevo quando <code>BREVO_API_KEY</code> e <code>BREVO_FROM</code> estão configurados. Sem elas, o sistema usa o Resend como alternativa.</p>
-    {message && <p className="review-status" role="status">{message}</p>}
+    <p className="panel-subtitle">O envio usa o Brevo quando <code>BREVO_API_KEY</code> e <code>BREVO_FROM</code> estão configurados. Se o Brevo estiver incompleto, o painel informa o ajuste necessário; sem configuração do Brevo, o sistema usa o Resend como alternativa.</p>
+    {message && <p className={`review-status review-status-${message.tone}`} role="status">{message.text}</p>}
   </>;
 }
 
