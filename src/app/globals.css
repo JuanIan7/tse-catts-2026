@@ -79,10 +79,69 @@ th { color:#5d5e56; font-size:.74rem; letter-spacing:.08em; text-transform:upper
 
 .admin-panel { display:grid; gap:1.25rem; }
 .admin-heading { display:flex; justify-content:space-between; gap:1rem; align-items:end; flex-wrap:wrap; }
-.table-wrap { overflow:auto; border:1px solid var(--line); border-radius:13px; }
-.table-wrap form { display:flex; gap:.45rem; align-items:center; min-width:12rem; }
-.table-wrap button { padding:.5rem .7rem; font-size:.8rem; }
-.status-badge { display:inline-flex; padding:.3rem .5rem; border-radius:999px; background:#ecebe5; color:#4f5048; font-weight:800; font-size:.7rem; letter-spacing:.04em; }
+.access-requests { display:grid; gap:1rem; }
+.access-requests-heading,.access-heading-title,.access-group-heading,.access-request-person,.access-request-name-row { display:flex; gap:.75rem; }
+.access-requests-heading { align-items:flex-start; justify-content:space-between; }
+.access-heading-title { min-width:0; align-items:flex-start; }
+.access-heading-title h2 { margin:.05rem 0 .3rem; }
+.access-heading-title .panel-subtitle { margin:0; max-width:43rem; }
+.access-section-icon { width:2.8rem; height:2.8rem; flex:0 0 auto; display:grid; place-items:center; border:1px solid #e0c96a; border-radius:12px; background:#fff8d9; color:#7b6417; }
+.access-section-icon svg { width:1.5rem; height:1.5rem; }
+.access-pending-counter { display:inline-flex; align-items:baseline; gap:.3rem; padding:.6rem .75rem; border:1px solid #ddc45a; border-radius:999px; background:#fff5c8; color:#665215; font-size:.78rem; font-weight:800; white-space:nowrap; }
+.access-pending-counter strong { font-size:1.15rem; }
+.access-pending-counter-empty { border-color:#d8d8d1; background:#f3f3ee; color:#65665e; }
+.access-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.65rem; }
+.access-summary-card { min-height:5.5rem; padding:.85rem .95rem; display:grid; align-content:center; gap:.2rem; border:1px solid var(--line); border-radius:12px; background:#f7f7f3; }
+.access-summary-card strong { font-size:1.55rem; letter-spacing:-.04em; line-height:1; }
+.access-summary-card span { color:var(--muted); font-size:.78rem; font-weight:800; }
+.access-summary-pending { border-color:#e1cb73; background:#fff9df; color:#806815; }
+.access-summary-approved { border-color:#bcd8c4; background:#edf7ef; color:#286341; }
+.access-summary-restricted { border-color:#e8c5c1; background:#fff3f1; color:#99463e; }
+.access-group { border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+.access-group-pending { border-color:#e4d58f; background:#fffdf4; }
+.access-group-heading { padding:.9rem 1rem; align-items:center; justify-content:space-between; border-bottom:1px solid #eee5ba; }
+.access-group-heading h3,.access-empty-state h3 { margin:0 0 .2rem; font-size:1rem; }
+.access-group-heading p,.access-group-empty { margin:0; color:var(--muted); font-size:.86rem; line-height:1.4; }
+.access-group-heading > span { padding:.3rem .5rem; border-radius:999px; background:#f7eaa8; color:#715a0d; font-size:.72rem; font-weight:800; white-space:nowrap; }
+.access-group-empty { padding:1rem; }
+.access-request-list { display:grid; gap:.65rem; padding:1rem; }
+.access-request-card { display:grid; grid-template-columns:minmax(0,1fr) minmax(14rem,.72fr); gap:1rem; align-items:center; padding:1rem; border:1px solid var(--line); border-radius:12px; background:#fff; box-shadow:0 .35rem .9rem #19191308; }
+.access-request-card-pendente { border-color:#dfcb71; }
+.access-request-person { min-width:0; align-items:flex-start; }
+.access-request-avatar { width:2.35rem; height:2.35rem; flex:0 0 auto; display:grid; place-items:center; border-radius:50%; background:#ecebe4; color:#4d4e46; font-weight:900; }
+.access-request-identification { min-width:0; }
+.access-request-name-row { align-items:center; flex-wrap:wrap; }
+.access-request-name-row h4 { margin:0; font-size:.98rem; }
+.access-request-identification a { display:inline-block; max-width:100%; overflow-wrap:anywhere; color:#5b4d1e; font-size:.85rem; }
+.access-request-identification p { margin:.35rem 0 0; color:var(--muted); font-size:.78rem; line-height:1.35; }
+.access-status-badge { display:inline-flex; padding:.28rem .46rem; border:1px solid transparent; border-radius:999px; font-size:.67rem; font-weight:800; letter-spacing:.03em; }
+.access-status-pendente { border-color:#ddc45a; background:#fff5c8; color:#6d5913; }
+.access-status-aprovado { border-color:#b9d6c0; background:#edf6ef; color:#285c3d; }
+.access-status-recusado { border-color:#e7b8b4; background:#fff0ed; color:#983c33; }
+.access-status-bloqueado { border-color:#cecec8; background:#f0f0ec; color:#565650; }
+.access-card-actions { display:grid; gap:.55rem; justify-items:end; }
+.access-decision-actions,.access-reviewed-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.45rem; }
+.access-decision-actions form,.access-reviewed-actions form,.access-reset-password { display:block; }
+.access-card-actions button { padding:.55rem .7rem; font-size:.76rem; white-space:nowrap; }
+.access-button-approve { background:#2f714e; }
+.access-button-approve:hover { background:#225b3c; }
+.access-button-reject { background:#7c6334; }
+.access-button-reject:hover { background:#654e26; }
+.access-button-block { background:#70413d; }
+.access-button-block:hover { background:#5d332f; }
+.access-change-decision { display:grid !important; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:.35rem .45rem; width:min(100%,17rem); }
+.access-change-decision label { grid-column:1 / -1; font-size:.72rem; }
+.access-change-decision select { min-width:0; padding:.5rem .55rem; font-size:.78rem; }
+.access-change-decision button { padding:.52rem .6rem; }
+.access-reset-password button { border:1px solid #bab9b0; background:#fff; color:#41423b; }
+.access-reset-password button:hover { background:#f3f3ed; color:#272820; }
+.access-reviewed-history { border:1px solid var(--line); border-radius:14px; background:#fafaf7; overflow:hidden; }
+.access-reviewed-history summary { display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.95rem 1rem; cursor:pointer; font-weight:800; }
+.access-reviewed-history summary small { color:var(--muted); font-size:.78rem; font-weight:700; }
+.access-reviewed-description { margin:0 1rem; color:var(--muted); font-size:.84rem; line-height:1.4; }
+.access-request-list-reviewed { padding-top:.8rem; }
+.access-empty-state { display:flex; gap:.85rem; align-items:center; padding:1rem; border:1px dashed #c9c8bf; border-radius:12px; background:#fbfbf8; }
+.access-empty-state .panel-subtitle { margin:0; }
 .admin-review { display:grid; gap:1rem; }
 .admin-review-heading { display:flex; justify-content:space-between; gap:1rem; align-items:start; flex-wrap:wrap; }
 .review-session-list { display:flex; gap:.55rem; overflow:auto; padding:.15rem; }
@@ -178,5 +237,6 @@ th { color:#5d5e56; font-size:.74rem; letter-spacing:.08em; text-transform:upper
 .appeal-admin li p { margin:.35rem 0; line-height:1.35; }
 .appeal-admin form { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
 .appeal-admin select { width:auto; min-width:8rem; padding:.42rem .5rem; }
-@media (max-width:760px) { .auth-page { padding:1rem; align-items:start; } .auth-layout { grid-template-columns:1fr; gap:1.75rem; } .auth-intro { padding:1rem .35rem; } .auth-points { max-width:28rem; } .dashboard-grid,.review-workspace { grid-template-columns:1fr; } .difficulty-grid { grid-template-columns:1fr; } .difficulty-grid select { grid-column:auto; } .app-header-inner { min-height:4.1rem; } .app-main { padding-top:1rem; } .review-tool-sidebar { position:static; max-height:none; } th,td { white-space:nowrap; } }
+@media (max-width:760px) { .auth-page { padding:1rem; align-items:start; } .auth-layout { grid-template-columns:1fr; gap:1.75rem; } .auth-intro { padding:1rem .35rem; } .auth-points { max-width:28rem; } .dashboard-grid,.review-workspace { grid-template-columns:1fr; } .difficulty-grid { grid-template-columns:1fr; } .difficulty-grid select { grid-column:auto; } .app-header-inner { min-height:4.1rem; } .app-main { padding-top:1rem; } .review-tool-sidebar { position:static; max-height:none; } .access-requests-heading { flex-direction:column; } .access-pending-counter { align-self:flex-start; } .access-request-card { grid-template-columns:1fr; } .access-card-actions { justify-items:stretch; } .access-decision-actions { justify-content:flex-start; } .access-decision-actions form { flex:1 1 9rem; } .access-decision-actions button,.access-reset-password button { width:100%; } .access-reviewed-actions { justify-content:stretch; } .access-change-decision { width:100%; } th,td { white-space:nowrap; } }
+@media (max-width:520px) { .access-summary { grid-template-columns:1fr; } .access-group-heading { align-items:flex-start; flex-direction:column; } .access-section-icon { width:2.5rem; height:2.5rem; } .access-request-list { padding:.7rem; } .access-request-card { padding:.85rem; } .access-request-person { gap:.6rem; } .access-request-name-row { align-items:flex-start; flex-direction:column; gap:.35rem; } }
 @media (prefers-reduced-motion:reduce) { *,*:before,*:after { scroll-behavior:auto!important; transition:none!important; } }
