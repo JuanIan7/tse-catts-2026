@@ -21,6 +21,13 @@ export function AppShell({ children, backHref, backLabel = "Voltar", actions, to
       </div>
     </header>
     <main className="app-main">{children}</main>
-    <footer className="app-footer">Ferramenta didática fictícia · em caso de sofrimento real, ligue 188 (CVV).</footer>
+    <footer className="app-footer">
+      <p className="app-footer-safety">Ferramenta didática fictícia · em caso de sofrimento real, ligue 188 (CVV).</p>
+      <div className="footer-branding">
+        <span>Desenvolvido por</span>
+        <img src="/brand/juan-araujo-e-filho.png" alt="" loading="lazy" />
+        <strong>Juan Araujo & Filho</strong>
+      </div>
+    </footer>
   </div>;
 }

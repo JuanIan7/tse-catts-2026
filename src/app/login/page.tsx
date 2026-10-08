@@ -17,5 +17,12 @@ export default function LoginPage() {
         <AuthForm />
       </section>
     </div>
+    <footer className="auth-footer">
+      <div className="footer-branding">
+        <span>Desenvolvido por</span>
+        <img src="/brand/juan-araujo-e-filho.png" alt="" loading="lazy" />
+        <strong>Juan Araujo & Filho</strong>
+      </div>
+    </footer>
   </main>;
 }
