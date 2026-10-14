@@ -36,8 +36,8 @@ describe("evidências determinísticas da transcrição", () => {
 
   it("exige oferta médica segura e aceitação posterior para a saída digna", () => {
     const accepted = analyzeTranscriptEvidence(caseData, [
-      { speaker: "ALUNO", content: "Vamos com a ambulância para o hospital e para atendimento médico especializado." },
-      { speaker: "PERSONAGEM", content: "Tá bom, vamos juntos." },
+      { speaker: "ALUNO", content: "Há uma ambulância próxima e um trajeto reservado, sem exposição. Eu acompanho você até o hospital de referência, onde um médico especialista fará a avaliação. Você aceita ir comigo?" },
+      { speaker: "PERSONAGEM", content: "Vou com você até a ambulância." },
     ]);
     const unsafe = analyzeTranscriptEvidence(caseData, [
       { speaker: "ALUNO", content: "Vamos sair daqui para você dar um abraço no seu pai." },
@@ -45,23 +45,51 @@ describe("evidências determinísticas da transcrição", () => {
     ]);
     expect(hasAcceptedSafeExit(accepted)).toBe(true);
     expect(hasAcceptedSafeExit(unsafe)).toBe(false);
+    expect(hasAcceptedSafeExit(analyzeTranscriptEvidence(caseData, [
+      { speaker: "ALUNO", content: "Vamos com a ambulância ao hospital para atendimento médico." },
+      { speaker: "PERSONAGEM", content: "Tá bom, vamos." },
+    ]))).toBe(false);
   });
 
   it("não reaproveita aceitação depois de uma recusa ou mudança de assunto", () => {
     const refusedThenUnrelated = analyzeTranscriptEvidence(caseData, [
-      { speaker: "ALUNO", content: "Vamos com a ambulância para o hospital e para atendimento médico especializado." },
+      { speaker: "ALUNO", content: "Há uma ambulância próxima e um trajeto reservado, sem exposição. Eu acompanho você até o hospital de referência, onde um médico especialista fará a avaliação. Você aceita ir comigo?" },
       { speaker: "PERSONAGEM", content: "Não quero ir para hospital agora." },
       { speaker: "ALUNO", content: "Seu pai mantém contato com você?" },
       { speaker: "PERSONAGEM", content: "Tá bom, vamos conversar sobre ele." },
     ]);
     const delayedAcceptance = analyzeTranscriptEvidence(caseData, [
-      { speaker: "ALUNO", content: "Vamos com a ambulância para o hospital e para atendimento médico especializado." },
+      { speaker: "ALUNO", content: "Há uma ambulância próxima e um trajeto reservado, sem exposição. Eu acompanho você até o hospital de referência, onde um médico especialista fará a avaliação. Você aceita ir comigo?" },
       { speaker: "PERSONAGEM", content: "Preciso pensar um pouco." },
       { speaker: "ALUNO", content: "Eu entendo; seu pai parece importante." },
       { speaker: "PERSONAGEM", content: "Tá bom, vamos." },
     ]);
     expect(hasAcceptedSafeExit(refusedThenUnrelated)).toBe(false);
     expect(hasAcceptedSafeExit(delayedAcceptance)).toBe(false);
+  });
+
+  it("aceita concordância explícita após hesitação, mas não conversa ou equipe genérica", () => {
+    const offer = "Há uma ambulância próxima e um trajeto reservado, sem exposição. Eu acompanho você até o hospital de referência, onde um médico especialista fará a avaliação. Você aceita ir comigo?";
+    const hesitated = analyzeTranscriptEvidence(caseData, [
+      { speaker: "ALUNO", content: offer },
+      { speaker: "PERSONAGEM", content: "Tenho vergonha de ser visto." },
+      { speaker: "ALUNO", content: "O trajeto ficará reservado; estarei com você." },
+      { speaker: "PERSONAGEM", content: "Vou com você até a ambulância." },
+    ]);
+    expect(hasAcceptedSafeExit(hesitated)).toBe(true);
+    expect(hasAcceptedSafeExit(analyzeTranscriptEvidence(caseData, [
+      { speaker: "ALUNO", content: offer },
+      { speaker: "PERSONAGEM", content: "Tá bom, vamos conversar." },
+    ]))).toBe(false);
+    expect(hasAcceptedSafeExit(analyzeTranscriptEvidence(caseData, [
+      { speaker: "ALUNO", content: offer.replace("médico especialista", "equipe especialista") },
+      { speaker: "PERSONAGEM", content: "Vou com você até a ambulância." },
+    ]))).toBe(false);
+    expect(hasAcceptedSafeExit(analyzeTranscriptEvidence(caseData, [
+      { speaker: "ALUNO", content: offer },
+      { speaker: "PERSONAGEM", content: "Não quero ir." },
+      { speaker: "PERSONAGEM", content: "Vou com você até a ambulância." },
+    ]))).toBe(false);
   });
 
   it("mantém os requisitos de 70%, risco, proteção e duas ferramentas", () => {
@@ -80,7 +108,7 @@ describe("evidências determinísticas da transcrição", () => {
 
   it("mantém crédito fracionado da oferta sem antecipar a aceitação", () => {
     const evidence = analyzeTranscriptEvidence(caseData, [
-      { speaker: "ALUNO", content: "Vamos com a ambulância para o hospital e para atendimento médico especializado." },
+      { speaker: "ALUNO", content: "Há uma ambulância próxima e um trajeto reservado, sem exposição. Eu acompanho você até o hospital de referência, onde um médico especialista fará a avaliação. Você aceita ir comigo?" },
       { speaker: "PERSONAGEM", content: "Não quero ir agora." },
     ]);
     expect(hasAcceptedSafeExit(evidence)).toBe(false);
