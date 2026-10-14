@@ -1,7 +1,62 @@
 import { describe, expect, it } from "vitest";
-import { detectDialogueTools, dialogueControlState, hasDialogueMemoryError } from "./dialogue-tools";
+import { detectDialogueTools, dialogueControlState, hasDialogueMemoryError, questionKinds } from "./dialogue-tools";
 
 describe("ferramentas de diálogo", () => {
+  it("classifica perguntas de sim ou não sem limitar o assunto a uma lista fixa", () => {
+    const questions = questionKinds([
+      { speaker: "ALUNO", content: "Você pratica esportes?" },
+      { speaker: "ALUNO", content: "Você prefere que eu fique aqui?" },
+      { speaker: "ALUNO", content: "Como esse esporte ajudava você antes?" },
+    ]);
+    expect(questions.simple).toBe("Você pratica esportes?");
+    expect(questions.complex).toBe("Como esse esporte ajudava você antes?");
+    expect(questionKinds([{ speaker: "ALUNO", content: "Sua avó ainda é viva?" }]).simple).toBe("Sua avó ainda é viva?");
+    expect(questionKinds([{ speaker: "ALUNO", content: "Qual é seu nome?" }]).simple).toBe("Qual é seu nome?");
+    expect(questionKinds([{ speaker: "ALUNO", content: "O que aconteceu com sua avó?" }]).simple).toBeNull();
+    expect(questionKinds([{ speaker: "ALUNO", content: "Qual é seu nome?" }, { speaker: "ALUNO", content: "Qual é seu maior medo?" }]).complex).toBeNull();
+    for (const followUp of [
+      "Quais tarefas do trabalho eram mais importantes para você?",
+      "Quando começou esse trabalho?",
+      "Quanto desse trabalho ainda faz parte da sua rotina?",
+      "De que forma esse trabalho mudou sua vida?",
+    ]) {
+      expect(questionKinds([{ speaker: "ALUNO", content: "Você trabalha?" }, { speaker: "ALUNO", content: followUp }]).complex).toBe(followUp);
+    }
+  });
+
+  it("reconhece perguntas diretas depois de vocativo e comentário, como nas abordagens históricas", () => {
+    expect(questionKinds([{ speaker: "ALUNO", content: "Amigo, você trabalha aqui?" }]).simple).toBe("Amigo, você trabalha aqui?");
+    expect(questionKinds([{ speaker: "ALUNO", content: "Percebo que você se preocupa com o cachorro. Qual o nome dele?" }]).simple).toContain("nome dele");
+    expect(questionKinds([{ speaker: "ALUNO", content: "Você trabalha aqui? Como foi o seu último dia de trabalho?" }]).complex).toContain("último dia");
+  });
+
+  it("reconhece paráfrase fiel sem exigir uma fórmula fixa de abertura", () => {
+    const tools = detectDialogueTools([
+      { speaker: "PERSONAGEM", content: "Eu tinha uma oficina e ensinava o Davi a consertar bicicletas." },
+      { speaker: "ALUNO", content: "A oficina era seu lugar de trabalho e também onde você ensinava o Davi. Entendi direito?" },
+    ]);
+    expect(tools.parafrase).toContain("oficina");
+  });
+
+  it("reconhece lembrança positiva ligada ao que o tentante contou", () => {
+    const tools = detectDialogueTools([
+      { speaker: "PERSONAGEM", content: "Quando minha filha se formou, fiquei orgulhoso e fomos comemorar juntos." },
+      { speaker: "ALUNO", content: "Você falou da formatura da sua filha e do orgulho que sentiu. Como foi aquele dia para vocês?" },
+    ]);
+    expect(tools.memoria).toContain("formatura");
+  });
+
+  it("reconhece reflexão encadeada sem exigir duas alternativas prontas", () => {
+    const tools = detectDialogueTools([
+      { speaker: "PERSONAGEM", content: "Meu pai está preocupado comigo, mas não sabe como ajudar." },
+      { speaker: "ALUNO", content: "Se seu pai estivesse aqui agora, o que você pediria a ele para te acompanhar até o atendimento?" },
+    ]);
+    expect(tools.teia).toContain("pai");
+    expect(detectDialogueTools([
+      { speaker: "PERSONAGEM", content: "Tenho medo do hospital." },
+      { speaker: "ALUNO", content: "Se você chegar ao hospital, como é a segurança de lá?" },
+    ]).teia).toBeNull();
+  });
   it("reconhece paráfrase resumida seguida de confirmação", () => {
     const tools = detectDialogueTools([{ speaker: "PERSONAGEM", content: "Minha filha me ama e tivemos momentos felizes juntos." }, { speaker: "ALUNO", content: "Certo, então deixa eu ver se eu entendi. Você ama sua filha e viveu momentos felizes com ela. É isso mesmo?" }]);
     expect(tools.parafrase).toContain("deixa eu ver se eu entendi");

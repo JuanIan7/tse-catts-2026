@@ -5,6 +5,14 @@ function normalized(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+const genericWords = new Set(["voce", "senhor", "senhora", "minha", "minhas", "meus", "nosso", "nossa", "estou", "estava", "estive", "agora", "ainda", "entao", "tambem", "porque", "quando", "muito", "muita", "sobre", "aqui", "junto", "juntos"]);
+
+function topicTerms(value: string) {
+  return new Set((normalized(value).match(/\b(?:[a-z]{5,}|pai|mae|avo|irma)\b/g) ?? [])
+    .filter((word) => !genericWords.has(word))
+    .map((word) => word.slice(0, 5)));
+}
+
 export function detectDialogueTools(transcript: TranscriptTurn[]) {
   let parafrase: string | null = null;
   let memoria: string | null = null;
@@ -16,7 +24,7 @@ export function detectDialogueTools(transcript: TranscriptTurn[]) {
   for (const turn of transcript) {
     if (turn.speaker === "PERSONAGEM") {
       lastCharacterText = normalized(turn.content);
-      for (const word of lastCharacterText.match(/[a-z]{5,}/g) ?? []) revealedTerms.add(word);
+      for (const word of topicTerms(lastCharacterText)) revealedTerms.add(word);
       continue;
     }
     if (turn.speaker !== "ALUNO") continue;
@@ -25,26 +33,31 @@ export function detectDialogueTools(transcript: TranscriptTurn[]) {
     const currentQuestionTerms = new Set((text.match(/[a-z]{5,}/g) ?? []).map((word) => word.slice(0, 5)));
     const relatedToPriorQuestion = [...currentQuestionTerms].some((term) => priorQuestionTerms.has(term));
     if (isQuestion) studentQuestionCount += 1;
-    const recalledTerms = new Set((text.match(/[a-z]{5,}/g) ?? []).filter((word) => revealedTerms.has(word)));
-    if (!parafrase && /\b(deixa eu ver se eu entendi|deixa eu entender|entao quer dizer que|entao deixa eu ver)\b/.test(text) && /\?/.test(turn.content) && recalledTerms.size >= 2) {
+    const recalledTerms = new Set([...topicTerms(text)].filter((word) => revealedTerms.has(word)));
+    const summarizesAndChecks = /\b(deixa eu ver se eu entendi|deixa eu entender|entao quer dizer que|entao deixa eu ver|pelo que entendi|voce disse|voce contou)\b/.test(text)
+      || /\b(entendi (direito|certo)|e isso|confere|estou entendendo|correto)\b/.test(text);
+    if (!parafrase && summarizesAndChecks && isQuestion && recalledTerms.size >= 2) {
       parafrase = turn.content.trim().slice(0, 500);
     }
-    const positivePastOrFuture = /\b(quando (ela|ele) nasceu|homenagem|orgulho|feliz|bom momento|lembranca boa|reencontrar)\b/.test(text) || /\b(imagina|imagine)\b.*\b(voltar|reencontrar|abracar|estar com|ver novamente)\b/.test(text);
+    const positivePastOrFuture = /\b(quando (ela|ele) nasceu|homenagem|orgulh\w*|feliz\w*|formatur\w*|comemor\w*|alegr\w*|aniversar\w*|bom momento|lembranca boa|reencontrar)\b/.test(text) || /\b(imagina|imagine)\b.*\b(voltar|reencontrar|abracar|estar com|ver novamente)\b/.test(text);
     const referencesKnownMoment = recalledTerms.size >= 1 || (/\b(como foi quando ela nasceu|quando ele nasceu)\b/.test(text) && /\b(ela|ele|filha|filho)\b/.test(lastCharacterText));
-    if (!memoria && positivePastOrFuture && referencesKnownMoment && /\b(como foi quando|voce lembra|o senhor lembra|a senhora lembra|consegue se lembrar|se recorda|imagina voce|imagine voce)\b/.test(text) && /\?/.test(turn.content)) {
+    if (!memoria && positivePastOrFuture && referencesKnownMoment && /\b(como foi( quando| aquele| esse| o)?|voce lembra|o senhor lembra|a senhora lembra|consegue se lembrar|se recorda|imagina voce|imagine voce)\b/.test(text) && isQuestion) {
       memoria = turn.content.trim().slice(0, 500);
     }
     const alternatives = text.split(/\bou\b/).map((part) => part.trim()).filter(Boolean);
     const positive = /(ajuda|especialista|psicolog|hospital|ambulancia|atendimento|irma|irmao|famil|acompanhar|comigo|segur|cuidado)/;
     const offersChoices = alternatives.length >= 2 && alternatives.every((part) => positive.test(part));
     const chainedReflection = studentQuestionCount >= 2 && relatedToPriorQuestion && recalledTerms.size >= 1 && /\b(entao quer dizer|voce conhece|ja viu|o que aconteceria se)\b/.test(text) && /\?/.test(turn.content);
-    if (!teia && (offersChoices || chainedReflection)) teia = turn.content.trim().slice(0, 500);
+    const linkedReflection = recalledTerms.size >= 1 && /\bse\b.*\b(o que voce (pediria|faria|escolheria|diria|precisaria|poderia)|como voce (poderia|faria)|qual seria (o|seu) (passo|escolha))\b/.test(text) && /\b(ajuda|acompanhar|atendimento|cuidado|seguranca|proximo passo)\b/.test(text) && isQuestion;
+    if (!teia && (offersChoices || chainedReflection || linkedReflection)) teia = turn.content.trim().slice(0, 500);
     if (isQuestion) priorQuestionTerms = currentQuestionTerms;
   }
   return { parafrase, memoria, teia };
 }
 
-const simpleQuestionPattern = /\b(tem|teve|e|eh|esta|trabalha|pratica|possui|mora|vive|conhece|gosta|seus?|sua)\b.*\?|\b(voce|o senhor|a senhora)\s+(e|eh|esta|tem|teve|trabalha|pratica|possui|mora|vive|conhece|gosta)\b/;
+const simpleQuestionPattern = /^(voce|o senhor|a senhora|seu|sua|seus|suas|ele|ela|eles|elas|e|esta|tem|teve|trabalha|pratica|possui|mora|vive|conhece|gosta|prefere|pode|quer|consegue|sabe)\b/;
+const nameQuestionPattern = /^(qual (e )?(o )?(seu|sua) nome|qual (e )?(o )?nome (dele|dela)|como (voce|o senhor|a senhora) se chama|seu nome)\b/;
+const questionStartPattern = /\b(voce|o senhor|a senhora|seu|sua|seus|suas|ele|ela|eles|elas|qual|quais|como|quando|quanto|de que forma|por que|porque|o que|quem|onde|e|esta|tem|teve|trabalha|pratica|possui|mora|vive|conhece|gosta|prefere|pode|quer|consegue|sabe)\b/;
 
 export function questionKinds(transcript: TranscriptTurn[]) {
   let simple: string | null = null;
@@ -52,17 +65,21 @@ export function questionKinds(transcript: TranscriptTurn[]) {
   let simpleTerms = new Set<string>();
   for (const turn of transcript) {
     if (turn.speaker !== "ALUNO") continue;
-    const text = normalized(turn.content);
-    if (!/\?/.test(turn.content)) continue;
-    const isComplexLead = /\b(como|por que|porque|qual|quais|quando|quanto|de que forma|o que voce sentiu|como se sente)\b/.test(text);
-    const isSimple = !isComplexLead && simpleQuestionPattern.test(text) && /(casad|filh|mae|pai|avo|esport|trabalh|cachorr|nome|mora|vive|tem\b)/.test(text);
-    if (isSimple) {
-      if (!simple) simple = turn.content.trim().slice(0, 500);
-      simpleTerms = new Set((text.match(/[a-z]{4,}/g) ?? []).filter((word) => !["voce", "senhor", "senhora", "tem", "esta", "como"].includes(word)).map((word) => word.slice(0, 5)));
+    for (const clause of turn.content.match(/[^?.!]*\?/g) ?? []) {
+      const rawText = normalized(clause);
+      const questionStart = questionStartPattern.exec(rawText);
+      if (!questionStart) continue;
+      const text = rawText.slice(questionStart.index);
+      const isNameQuestion = nameQuestionPattern.test(text);
+      const isComplexLead = /\b(como|por que|porque|qual|quais|quando|quanto|quem|onde|de que forma|o que)\b/.test(text) && !isNameQuestion;
+      const isSimple = isNameQuestion || (!isComplexLead && simpleQuestionPattern.test(text));
+      if (isSimple) {
+        if (!simple) simple = turn.content.trim().slice(0, 500);
+        for (const word of topicTerms(text)) simpleTerms.add(word);
+      }
+      const complexTerms = topicTerms(text);
+      if (isComplexLead && !isSimple && [...complexTerms].some((term) => simpleTerms.has(term)) && !complex) complex = turn.content.trim().slice(0, 500);
     }
-    const isComplex = isComplexLead && !isSimple;
-    const complexTerms = new Set((text.match(/[a-z]{4,}/g) ?? []).map((word) => word.slice(0, 5)));
-    if (isComplex && [...complexTerms].some((term) => simpleTerms.has(term)) && !complex) complex = turn.content.trim().slice(0, 500);
   }
   return { simple, complex };
 }
