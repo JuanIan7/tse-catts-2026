@@ -83,16 +83,19 @@ function firstMatch(factor: string, related: string[], turns: EvidenceTurn[]) {
 export function isSafeMedicalOffer(turn: EvidenceTurn) {
   if (turn.speaker !== "ALUNO") return false;
   const text = normalize(turn.content);
-  const care = /\b(ambulanc[a-z]*|hospital|atendimento medico|atendimento especializado|medic[a-z]*|especialista[a-z]*|emergencia)\b/.test(text);
-  const movement = /\b(vamos|ir|levar|acompanhar|conduzir|chamar|aceita|pode|seguir)\b/.test(text);
-  return care && movement;
+  const ambulanceNearby = /\bambulanc[a-z]*\b.{0,45}\b(proxim[a-z]*|perto|aguard[a-z]*|aqui)\b/.test(text);
+  const discreetRoute = /\b(reservad[a-z]*|sem exposic[a-z]*|sem curios[a-z]*|trajeto protegido)\b/.test(text) || /\bnao\b.{0,35}\bexpo[a-z]*\b/.test(text);
+  const escort = /\b(acompanho|acompanharei|acompanhamos|vou com|irei com|sigo com|seguirei com|ficarei ao seu lado|ficarei ao lado)\b/.test(text);
+  const specialistCare = /\bhospital de referencia\b/.test(text) && /\b(medico|medica)\b.{0,35}\bespecialista\b/.test(text);
+  const offeredChoice = /\b(aceita|vamos|podemos ir|quer ir|pode ir)\b/.test(text);
+  return ambulanceNearby && discreetRoute && escort && specialistCare && offeredChoice;
 }
 
 function acceptsOffer(turn: EvidenceTurn) {
   if (turn.speaker !== "PERSONAGEM") return false;
   const text = normalize(turn.content);
   if (/\b(nao vou|nao quero|nao aceito|nao vamos)\b/.test(text)) return false;
-  return /\b(vamos(?: juntos)?|vamos sim|ta bom|eu vou|vou com voce|pode me levar|aceito|sim vamos)\b/.test(text);
+  return /\b(vou com voce|aceito ir|aceito sair|vamos (?:ate|para) (?:a |ao )?(?:ambulancia|hospital)|pode me levar (?:a |ao |para )(?:a |o )?(?:ambulancia|hospital)|vou (?:ate|para) (?:a |ao )?(?:ambulancia|hospital))\b/.test(text);
 }
 
 function exitEvidence(turns: EvidenceTurn[]): ExitEvidence {
@@ -103,15 +106,16 @@ function exitEvidence(turns: EvidenceTurn[]): ExitEvidence {
     const offer = { factor: "oferta segura de saída digna", speaker: offerTurn.speaker, content: offerTurn.content.trim().slice(0, 500) } satisfies FactorMatch;
     latestOffer = offer;
 
-    // A concordância precisa responder à oferta médica atual. Uma recusa ou
-    // mudança de assunto encerra esta tentativa; uma nova aceitação exige uma
-    // nova oferta segura do aluno.
-    const immediateReply = turns[index + 1];
-    if (immediateReply && acceptsOffer(immediateReply)) {
-      return {
-        offer,
-        acceptance: { factor: "aceitação inequívoca da saída digna", speaker: immediateReply.speaker, content: immediateReply.content.trim().slice(0, 500) },
-      };
+    // A hesitação pode exigir esclarecimentos antes da aceitação explícita.
+    // Recusa encerra esta oferta; uma aceitação posterior requer nova oferta.
+    for (const reply of turns.slice(index + 1, index + 7)) {
+      if (reply.speaker === "PERSONAGEM" && /\b(nao quero ir|nao vou|nao aceito|nao saio)\b/.test(normalize(reply.content))) break;
+      if (acceptsOffer(reply)) {
+        return {
+          offer,
+          acceptance: { factor: "aceitação inequívoca da saída digna", speaker: reply.speaker, content: reply.content.trim().slice(0, 500) },
+        };
+      }
     }
   }
   return { offer: latestOffer, acceptance: null };

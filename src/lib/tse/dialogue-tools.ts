@@ -13,46 +13,101 @@ function topicTerms(value: string) {
     .map((word) => word.slice(0, 5)));
 }
 
+const positiveIdeaPattern = /\b(gost\w*|amava|ama|amo|alegr\w*|prazer|feliz\w*|orgulh\w*|importan\w*|proxim\w*|carinh\w*|corag\w*|ajud\w*|cuid\w*|calm\w*|confi\w*|sorr\w*|junto\w*|graca|bem|bom|boa|ensin\w*|aprend\w*|organiz\w*)\b/;
+const genericPositiveTerms = new Set(["gosta", "alegr", "feliz", "orgul", "impor", "proxi", "carin", "corag", "ajuda", "cuida", "calma", "confi", "sorri", "junto", "graca"]);
+
+function positiveIdeas(value: string) {
+  return normalized(value).split(/[.;]|\s+e\s+|\s+mas\s+/)
+    .filter((clause) => positiveIdeaPattern.test(clause) && !/\b(nao|nunca|jamais|sem)\b/.test(clause))
+    .map(topicTerms)
+    .filter((terms) => terms.size > 0);
+}
+
+function positiveMoments(value: string) {
+  const sentences = normalized(value).split(/[.!?;]/).map((sentence) => sentence.trim()).filter(Boolean);
+  return sentences.flatMap((sentence, index) => {
+    if (positiveIdeas(sentence).length === 0) return [];
+    const context = /^(ela|ele|esse|essa|isso|aquele|aquela)\b/.test(sentence) ? `${sentences[index - 1] ?? ""} ${sentence}` : sentence;
+    return [topicTerms(context)];
+  });
+}
+
+function recallsTwoPositiveIdeas(summary: string, ideas: Set<string>[]) {
+  const summarized = positiveIdeas(summary);
+  const used = new Set<number>();
+  let count = 0;
+  for (const clause of summarized) {
+    const match = ideas.findIndex((idea, index) => !used.has(index) && [...clause].some((term) => idea.has(term) && !genericPositiveTerms.has(term)));
+    if (match < 0) continue;
+    used.add(match);
+    count += 1;
+    if (count >= 2) return true;
+  }
+  return false;
+}
+
+function maieuticSequence(transcript: TranscriptTurn[]) {
+  const dialogue = transcript.filter((turn) => turn.speaker === "ALUNO" || turn.speaker === "PERSONAGEM");
+  let chain: { question: string; answer: string; start: number; end: number }[] = [];
+  for (let i = 0; i < dialogue.length - 1; i += 1) {
+    const question = dialogue[i];
+    const answer = dialogue[i + 1];
+    if (question.speaker !== "ALUNO" || !question.content.includes("?") || answer.speaker !== "PERSONAGEM" || answer.delivery_status === "INTERROMPIDO") continue;
+    chain = chain.at(-1)?.end === i - 1 ? [...chain, { question: question.content, answer: answer.content, start: i, end: i + 1 }] : [{ question: question.content, answer: answer.content, start: i, end: i + 1 }];
+    const recent = chain.slice(-5);
+    if (recent.length < 3) continue;
+    const last = recent.at(-1)!;
+    const finalQuestion = normalized(last.question);
+    const conclusion = normalized(last.answer);
+    if (!/\b(qual|como|o que)\b.*\b(primeiro passo|possivel|conclu\w*|fazer|escolher)\b/.test(finalQuestion)) continue;
+    if (!/\b(posso|consigo|e possivel|nao e impossivel|nao preciso|vou|aceito)\b/.test(conclusion)) continue;
+    const priorRevelations = new Set(dialogue.slice(0, recent[0].start).filter((turn) => turn.speaker === "PERSONAGEM").flatMap((turn) => [...topicTerms(turn.content)]));
+    if (![...topicTerms(recent[0].question)].some((term) => priorRevelations.has(term))) continue;
+    const reflectiveQuestions = recent.slice(1).filter((pair) => /\b(o que|se|entao|quando|precisou|conseguiu|qual|como)\b/.test(normalized(pair.question)));
+    if (reflectiveQuestions.length < 2) continue;
+    const linkedSteps = recent.slice(1).filter((pair, step) => {
+      const previous = recent[step];
+      const previousTerms = new Set([...topicTerms(previous.question), ...topicTerms(previous.answer)]);
+      return [...topicTerms(pair.question)].some((term) => previousTerms.has(term))
+        || /\b(a ajudou|o ajudou|naquele dia|nessa situacao|desse exemplo|dessa resposta|isso|essa primeira|esse primeiro)\b/.test(normalized(pair.question));
+    });
+    if (linkedSteps.length < Math.ceil((recent.length - 1) / 2)) continue;
+    return `${recent.map((pair) => pair.question).join(" | ")} | Tentante: ${last.answer}`.slice(0, 500);
+  }
+  return null;
+}
+
 export function detectDialogueTools(transcript: TranscriptTurn[]) {
   let parafrase: string | null = null;
   let memoria: string | null = null;
-  let teia: string | null = null;
+  const ideas: Set<string>[] = [];
+  const knownPositiveMoments: Set<string>[] = [];
   const revealedTerms = new Set<string>();
   let lastCharacterText = "";
-  let studentQuestionCount = 0;
-  let priorQuestionTerms = new Set<string>();
   for (const turn of transcript) {
     if (turn.speaker === "PERSONAGEM") {
       lastCharacterText = normalized(turn.content);
       for (const word of topicTerms(lastCharacterText)) revealedTerms.add(word);
+      ideas.push(...positiveIdeas(turn.content));
+      knownPositiveMoments.push(...positiveMoments(turn.content));
       continue;
     }
     if (turn.speaker !== "ALUNO") continue;
     const text = normalized(turn.content);
     const isQuestion = /\?/.test(turn.content);
-    const currentQuestionTerms = new Set((text.match(/[a-z]{5,}/g) ?? []).map((word) => word.slice(0, 5)));
-    const relatedToPriorQuestion = [...currentQuestionTerms].some((term) => priorQuestionTerms.has(term));
-    if (isQuestion) studentQuestionCount += 1;
     const recalledTerms = new Set([...topicTerms(text)].filter((word) => revealedTerms.has(word)));
     const summarizesAndChecks = /\b(deixa eu ver se eu entendi|deixa eu entender|entao quer dizer que|entao deixa eu ver|pelo que entendi|voce disse|voce contou)\b/.test(text)
       || /\b(entendi (direito|certo)|e isso|confere|estou entendendo|correto)\b/.test(text);
-    if (!parafrase && summarizesAndChecks && isQuestion && recalledTerms.size >= 2) {
+    if (!parafrase && summarizesAndChecks && text.endsWith("?") && recallsTwoPositiveIdeas(text, ideas)) {
       parafrase = turn.content.trim().slice(0, 500);
     }
-    const positivePastOrFuture = /\b(quando (ela|ele) nasceu|homenagem|orgulh\w*|feliz\w*|formatur\w*|comemor\w*|alegr\w*|aniversar\w*|bom momento|lembranca boa|reencontrar)\b/.test(text) || /\b(imagina|imagine)\b.*\b(voltar|reencontrar|abracar|estar com|ver novamente)\b/.test(text);
-    const referencesKnownMoment = recalledTerms.size >= 1 || (/\b(como foi quando ela nasceu|quando ele nasceu)\b/.test(text) && /\b(ela|ele|filha|filho)\b/.test(lastCharacterText));
-    if (!memoria && positivePastOrFuture && referencesKnownMoment && /\b(como foi( quando| aquele| esse| o)?|voce lembra|o senhor lembra|a senhora lembra|consegue se lembrar|se recorda|imagina voce|imagine voce)\b/.test(text) && isQuestion) {
+    const positivePastOrFuture = /\b(quando (ela|ele) nasceu|homenagem|orgulh\w*|feliz\w*|formatur\w*|comemor\w*|alegr\w*|aniversar\w*|bom momento|lembranca boa|reencontrar|dia bom|momento bom)\b/.test(text) || /\b(imagina\w*|imagine)\b.*\b(voltar|reencontrar|abracar|estar com|ver novamente|caminh\w*|tranquil\w*|bom|boa|calm\w*)\b/.test(text);
+    const referencesKnownMoment = knownPositiveMoments.some((idea) => [...recalledTerms].some((term) => idea.has(term) && !genericPositiveTerms.has(term)));
+    if (!memoria && positivePastOrFuture && referencesKnownMoment && /\b(como foi( quando| aquele| esse| o)?|voce lembra|o senhor lembra|a senhora lembra|consegue se lembrar|se recorda|consegue imaginar|imagina voce|imagine voce)\b/.test(text) && isQuestion) {
       memoria = turn.content.trim().slice(0, 500);
     }
-    const alternatives = text.split(/\bou\b/).map((part) => part.trim()).filter(Boolean);
-    const positive = /(ajuda|especialista|psicolog|hospital|ambulancia|atendimento|irma|irmao|famil|acompanhar|comigo|segur|cuidado)/;
-    const offersChoices = alternatives.length >= 2 && alternatives.every((part) => positive.test(part));
-    const chainedReflection = studentQuestionCount >= 2 && relatedToPriorQuestion && recalledTerms.size >= 1 && /\b(entao quer dizer|voce conhece|ja viu|o que aconteceria se)\b/.test(text) && /\?/.test(turn.content);
-    const linkedReflection = recalledTerms.size >= 1 && /\bse\b.*\b(o que voce (pediria|faria|escolheria|diria|precisaria|poderia)|como voce (poderia|faria)|qual seria (o|seu) (passo|escolha))\b/.test(text) && /\b(ajuda|acompanhar|atendimento|cuidado|seguranca|proximo passo)\b/.test(text) && isQuestion;
-    if (!teia && (offersChoices || chainedReflection || linkedReflection)) teia = turn.content.trim().slice(0, 500);
-    if (isQuestion) priorQuestionTerms = currentQuestionTerms;
   }
-  return { parafrase, memoria, teia };
+  return { parafrase, memoria, teia: maieuticSequence(transcript) };
 }
 
 const simpleQuestionPattern = /^(voce|o senhor|a senhora|seu|sua|seus|suas|ele|ela|eles|elas|e|esta|tem|teve|trabalha|pratica|possui|mora|vive|conhece|gosta|prefere|pode|quer|consegue|sabe)\b/;

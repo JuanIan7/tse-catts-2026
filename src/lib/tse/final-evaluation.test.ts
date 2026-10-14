@@ -48,8 +48,8 @@ describe("avaliação final com evidência da transcrição", () => {
         { speaker: "PERSONAGEM", content: "É isso. Eu fiquei com medo desde que parei o acompanhamento.", delivery_status: "OUVIDO" },
         { speaker: "ALUNO", content: "Seu pai sabe que você está passando por esse medo?", delivery_status: "OUVIDO" },
         { speaker: "PERSONAGEM", content: "Ele sabe um pouco, mas eu não queria preocupar ele.", delivery_status: "OUVIDO" },
-        { speaker: "ALUNO", content: "Vamos com a ambulância para o hospital, onde você terá atendimento médico especializado. Eu acompanho você até lá.", delivery_status: "OUVIDO" },
-        { speaker: "PERSONAGEM", content: "Tá bom, vamos juntos.", delivery_status: "OUVIDO" },
+        { speaker: "ALUNO", content: "Há uma ambulância próxima e um trajeto reservado, sem exposição. Eu acompanho você até o hospital de referência, onde um médico especialista fará a avaliação. Você aceita ir comigo?", delivery_status: "OUVIDO" },
+        { speaker: "PERSONAGEM", content: "Vou com você até a ambulância.", delivery_status: "OUVIDO" },
       ],
     });
 
@@ -73,7 +73,7 @@ describe("avaliação final com evidência da transcrição", () => {
       partial: true,
       reason: "TEMPO ESGOTADO",
       transcript: [
-        { speaker: "ALUNO", content: "Vamos com a ambulância para o hospital, onde você terá atendimento médico especializado.", delivery_status: "OUVIDO" },
+        { speaker: "ALUNO", content: "Há uma ambulância próxima e um trajeto reservado, sem exposição. Eu acompanho você até o hospital de referência, onde um médico especialista fará a avaliação. Você aceita ir comigo?", delivery_status: "OUVIDO" },
         { speaker: "PERSONAGEM", content: "Eu preciso de mais um instante para pensar.", delivery_status: "OUVIDO" },
       ],
     });
